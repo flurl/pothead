@@ -2,6 +2,7 @@ import asyncio
 from asyncio.subprocess import Process
 from collections import deque
 import json
+import logging
 import os
 import sys
 import time
@@ -30,6 +31,14 @@ TRIGGER_WORDS: list[str] = ["!pot", "!pothead", "!ph"]
 FILE_STORE_PATH: str = "document_store"
 CHAT_HISTORY: dict[str, deque[str]] = {}
 
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger: logging.Logger = logging.getLogger(__name__)
+
 # Configure Gemini
 client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -40,7 +49,10 @@ store: types.FileSearchStore = client.file_search_stores.create()
 def update_chat_history(chat_id: str, sender: str, message: str) -> None:
     if chat_id not in CHAT_HISTORY:
         CHAT_HISTORY[chat_id] = deque[str](maxlen=10)
-    CHAT_HISTORY[chat_id].append(f"{sender}: {message}")
+    CHAT_HISTORY[chat_id].append(message)
+    logger.debug(f"Chat history for {chat_id}: {CHAT_HISTORY[chat_id]}")
+    for line in CHAT_HISTORY[chat_id]:
+        logger.debug(line)
 
 
 def upload_store_files() -> None:
@@ -49,13 +61,13 @@ def upload_store_files() -> None:
     for filename in os.listdir(FILE_STORE_PATH):
         full_name: str = os.path.join(FILE_STORE_PATH, filename)
         if os.path.isfile(full_name):
-            print(f"Uploading {full_name}...")
+            logger.info(f"Uploading {full_name}...")
             upload_op: types.UploadToFileSearchStoreOperation = client.file_search_stores.upload_to_file_search_store(
                 file_search_store_name=store.name,
                 file=full_name
             )
             while not upload_op.done:
-                print(f"Waiting until {full_name} is processed...")
+                logger.info(f"Waiting until {full_name} is processed...")
                 time.sleep(5)
                 upload_op = client.operations.get(upload_op)
 
@@ -134,7 +146,7 @@ async def send_signal_message(proc: Process, recipient: str, message: str, group
         proc.stdin.write(json.dumps(rpc_request).encode('utf-8') + b"\n")
         await proc.stdin.drain()
     except Exception as e:
-        print(f"Failed to send message: {e}")
+        logger.error(f"Failed to send message: {e}")
 
 
 async def process_incoming_line(proc: Process, line: str) -> None:
@@ -203,7 +215,7 @@ async def process_incoming_line(proc: Process, line: str) -> None:
 
         # 4. Process
         if prompt is not None:
-            print(
+            logger.info(
                 f"Processing request from {source} (Group: {group_id}): {prompt}")
 
             if not prompt:
@@ -220,7 +232,7 @@ async def process_incoming_line(proc: Process, line: str) -> None:
             # update_chat_history(chat_id, "Assistant", response_text)
 
             await send_signal_message(proc, source, response_text, group_id)
-            print(f"Sent response to {source}")
+            logger.info(f"Sent response to {source}")
 
 
 async def main() -> None:
@@ -229,7 +241,7 @@ async def main() -> None:
     cmd: list[str] = [SIGNAL_CLI_PATH, "-a",
                       SIGNAL_ACCOUNT, "jsonRpc"]  # type: ignore
 
-    print(f"Starting signal-cli: {' '.join(cmd)}")
+    logger.info(f"Starting signal-cli: {' '.join(cmd)}")
 
     # upload_store_files()
 
@@ -240,14 +252,14 @@ async def main() -> None:
         stderr=sys.stderr  # Print errors to console directly
     )
 
-    print("Listening for messages...")
+    logger.info("Listening for messages...")
 
     try:
         while True:
             assert proc.stdout is not None
             # Read line by line from signal-cli stdout
             line: bytes = await proc.stdout.readline()
-            print(f"received: {line}")
+            # logger.debug(f"received: {line}")
             if not line:
                 break
 
