@@ -1,12 +1,13 @@
 import asyncio
 from asyncio.subprocess import Process
 from collections import deque
+from dataclasses import dataclass
 import json
 import logging
 import os
 import sys
 import time
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from google import genai
 from google.genai import types
@@ -30,6 +31,7 @@ GEMINI_MODEL_NAME: str = "gemini-2.5-flash"
 TRIGGER_WORDS: list[str] = ["!pot", "!pothead", "!ph"]
 FILE_STORE_PATH: str = "document_store"
 CHAT_HISTORY: dict[str, deque[str]] = {}
+CHAT_CONTEXT: dict[str, list[str]] = {}
 
 # Configure logging
 logging.basicConfig(
@@ -44,6 +46,89 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Upload files for rag
 store: types.FileSearchStore = client.file_search_stores.create()
+
+
+@dataclass
+class Command:
+    name: str
+    handler: Callable[[str, list[str], str | None], Awaitable[str]]
+
+
+async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> str:
+    return "saved"
+
+
+async def cmd_add_ctx(chat_id: str, params: list[str], prompt: str | None = None) -> str:
+    """Saves prompt and history entries as context for the next Gemini call."""
+    if chat_id not in CHAT_CONTEXT:
+        CHAT_CONTEXT[chat_id] = []
+
+    saved_count = 0
+
+    # Process parameters (history indices)
+    if chat_id in CHAT_HISTORY:
+        history: deque[str] = CHAT_HISTORY[chat_id]
+        for p in params:
+            try:
+                idx = int(p)
+                if 1 <= idx <= 10 and idx <= len(history):
+                    # 1-based index from end: 1 -> -1 (most recent)
+                    # skip the last history entry which is the command itself
+                    # therefore the -1
+                    CHAT_CONTEXT[chat_id].append(history[-idx-1])
+                    saved_count += 1
+            except ValueError:
+                pass
+
+    if prompt:
+        CHAT_CONTEXT[chat_id].append(prompt)
+        saved_count += 1
+
+    return f"💾 Context saved ({saved_count} items). Will be used in next call."
+
+
+async def cmd_ls_ctx(chat_id: str, params: list[str], prompt: str | None) -> str:
+    print(CHAT_CONTEXT)
+    """Lists the currently saved context for the chat."""
+    if chat_id not in CHAT_CONTEXT or not CHAT_CONTEXT[chat_id]:
+        return "ℹ️ No context is currently saved for this chat."
+
+    context_items: list[str] = CHAT_CONTEXT[chat_id]
+    response_lines: list[str] = ["📝 Current Context:"]
+    for i, item in enumerate(context_items, 1):
+        # Get first 5 words and add "..." if longer
+        words: list[str] = item.split()
+        snippet: str = " ".join(words[:5])
+        if len(words) > 5:
+            snippet += "..."
+        response_lines.append(f"{i}. {snippet}")
+
+    return "\n".join(response_lines)
+
+
+async def cmd_rm_ctx(chat_id: str, params: list[str], prompt: str | None) -> str:
+    """Deletes all context for the current chat."""
+    if chat_id in CHAT_CONTEXT:
+        del CHAT_CONTEXT[chat_id]
+        return "🗑️ Context cleared."
+    return "ℹ️ No context to clear."
+
+
+COMMANDS: list[Command] = [
+    Command("save", cmd_save),
+    Command("addctx", cmd_add_ctx),
+    Command("lsctx", cmd_ls_ctx),
+    Command("rmctx", cmd_rm_ctx),
+]
+
+
+async def execute_command(chat_id: str, command: str, params: list[str], prompt: str | None = None) -> str:
+    command = command.lower()
+    """Executes the parsed command."""
+    for cmd in COMMANDS:
+        if cmd.name == command:
+            return await cmd.handler(chat_id, params, prompt)
+    return f"❓ Unknown command: {command}"
 
 
 def update_chat_history(chat_id: str, sender: str, message: str) -> None:
@@ -72,15 +157,22 @@ def upload_store_files() -> None:
                 upload_op = client.operations.get(upload_op)
 
 
-async def get_gemini_response(prompt_text: str) -> str | None:
+async def get_gemini_response(chat_id: str, prompt_text: str) -> str | None:
     """Sends text to Gemini and returns the response."""
     try:
         assert store.name is not None
 
+        parts: list[types.Part] = []
+        # Add context if available and withdraw it
+        if chat_id in CHAT_CONTEXT:
+            for ctx in CHAT_CONTEXT[chat_id]:
+                parts.append(types.Part(text=ctx))
+            del CHAT_CONTEXT[chat_id]
+
+        parts.append(types.Part(text=prompt_text))
+
         # Create a proper Content object for the prompt
-        content = types.Content(
-            parts=[types.Part(text=prompt_text)]
-        )
+        content = types.Content(parts=parts)
 
         # Generate content
         response: types.GenerateContentResponse = await client.aio.models.generate_content(  # type: ignore
@@ -182,7 +274,7 @@ async def process_incoming_line(proc: Process, line: str) -> None:
                 if "quote" in dm:
                     quote = dm["quote"].get("text")
 
-        # Case B: Sync Message (Sent from your other devices) - matches your JSON examples
+        # Case B: Sync Message (Sent from your other devices)
         elif "syncMessage" in envelope:
             sm = envelope["syncMessage"]
             if sm and "sentMessage" in sm:
@@ -198,38 +290,66 @@ async def process_incoming_line(proc: Process, line: str) -> None:
         if not message_body:
             return
 
-        chat_id = group_id if group_id else source
+        chat_id: str = group_id if group_id else source
         update_chat_history(chat_id, source, message_body)
 
-        # 3. Check Prefixes (!botfather or !bf)
+        # 3. Check Prefixes (!pothead or !pot or !ph)
         clean_msg: str = message_body.strip()
         prompt: str | None = None
+        command: str | None = None
+        command_params: list[str] = []
+
         if quote is not None:
             prompt = f"{prompt}\n\n{quote}"
 
         TRIGGER_WORDS.sort(key=len, reverse=True)
         for tw in TRIGGER_WORDS:
             if clean_msg.startswith(tw):
-                prompt = clean_msg[len(tw):].strip()
+                content: str = clean_msg[len(tw):].strip()
+                if content.startswith("#"):
+                    # Parse command
+                    # Syntax: !TRIGGERWORD#COMMAND,PARAM1,PARAM2,... PROMPT
+                    cmd_content: str = content[1:]
+                    cmd_part: str
+                    prompt_part: str
+                    if " " in cmd_content:
+                        cmd_part, prompt_part = cmd_content.split(" ", 1)
+                        prompt = prompt_part.strip()
+                    else:
+                        cmd_part: str = cmd_content
+                        prompt = None
+
+                    parts: list[str] = cmd_part.split(',')
+                    command = parts[0].strip()
+                    if len(parts) > 1:
+                        command_params = [p.strip() for p in parts[1:]]
+                else:
+                    prompt = content
                 break
 
         # 4. Process
-        if prompt is not None:
+        if command is not None:
+            logger.info(
+                f"Processing command from {source} (Group: {group_id}): {command} {command_params}")
+            response_text = await execute_command(chat_id, command, command_params, prompt)
+            await send_signal_message(proc, source, response_text, group_id)
+            logger.info(f"Sent response to {source}")
+
+        elif prompt is not None:
             logger.info(
                 f"Processing request from {source} (Group: {group_id}): {prompt}")
 
             if not prompt:
                 response_text = "🤖 Beep Boop. Please provide a prompt."
             else:
-                response_text: str | None = await get_gemini_response(prompt)
+                response_text: str | None = await get_gemini_response(chat_id, prompt)
 
             # 5. Send Response
             # If group_id exists, we reply to the group. If not, we reply to the source.
             if response_text is None:
                 response_text = "🤖 Beep Boop. Something went wrong."
 
-            # i don't think the responses should be saved in the history, but we'll see
-            # update_chat_history(chat_id, "Assistant", response_text)
+            update_chat_history(chat_id, "Assistant", response_text)
 
             await send_signal_message(proc, source, response_text, group_id)
             logger.info(f"Sent response to {source}")
