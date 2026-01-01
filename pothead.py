@@ -32,6 +32,7 @@ TRIGGER_WORDS: list[str] = ["!pot", "!pothead", "!ph"]
 FILE_STORE_PATH: str = "document_store"
 CHAT_HISTORY: dict[str, deque[str]] = {}
 CHAT_CONTEXT: dict[str, list[str]] = {}
+CHAT_STORES: dict[str, types.FileSearchStore] = {}
 
 # Configure logging
 logging.basicConfig(
@@ -44,9 +45,6 @@ logger: logging.Logger = logging.getLogger(__name__)
 # Configure Gemini
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Upload files for rag
-store: types.FileSearchStore = client.file_search_stores.create()
-
 
 @dataclass
 class Command:
@@ -55,7 +53,56 @@ class Command:
 
 
 async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> str:
-    return "saved"
+    """Saves prompt and history entries to saved_context.txt and updates the file store."""
+    lines_to_save: list[str] = []
+
+    # Process parameters (history indices)
+    if chat_id in CHAT_HISTORY:
+        history: deque[str] = CHAT_HISTORY[chat_id]
+        for p in params:
+            try:
+                idx = int(p)
+                # 1-based index from end, skipping the command itself
+                if 1 <= idx < len(history):
+                    lines_to_save.append(history[-idx-1])
+            except ValueError:
+                pass
+
+    if prompt:
+        lines_to_save.append(prompt)
+
+    if not lines_to_save:
+        return "⚠️ Nothing to save."
+
+    # File operations
+    chat_dir: str = os.path.join(FILE_STORE_PATH, chat_id)
+    os.makedirs(chat_dir, exist_ok=True)
+    file_path: str = os.path.join(chat_dir, "saved_context.txt")
+
+    try:
+        with open(file_path, "a", encoding="utf-8") as f:
+            for line in lines_to_save:
+                f.write(f"{line}\n")
+    except Exception as e:
+        return f"❌ Error writing file: {e}"
+
+    # Update Gemini Store
+    # Invalidate cache and delete old store to force re-upload
+    if chat_id in CHAT_STORES:
+        store: types.FileSearchStore = CHAT_STORES[chat_id]
+        if store.name is None:
+            logger.error(f"Store name is None.")
+            return f"❌ Store name is None."
+        try:
+            client.file_search_stores.delete(name=store.name)
+        except Exception as e:
+            logger.error(f"Failed to delete old store: {e}")
+        del CHAT_STORES[chat_id]
+
+    # Trigger recreation/upload
+    get_chat_store(chat_id)
+
+    return f"💾 Saved {len(lines_to_save)} items to saved_context.txt and updated store."
 
 
 async def cmd_add_ctx(chat_id: str, params: list[str], prompt: str | None = None) -> str:
@@ -140,27 +187,52 @@ def update_chat_history(chat_id: str, sender: str, message: str) -> None:
         logger.debug(line)
 
 
-def upload_store_files() -> None:
-    assert store.name is not None
+def get_chat_store(chat_id: str) -> types.FileSearchStore | None:
+    if chat_id in CHAT_STORES:
+        return CHAT_STORES[chat_id]
 
-    for filename in os.listdir(FILE_STORE_PATH):
-        full_name: str = os.path.join(FILE_STORE_PATH, filename)
-        if os.path.isfile(full_name):
-            logger.info(f"Uploading {full_name}...")
-            upload_op: types.UploadToFileSearchStoreOperation = client.file_search_stores.upload_to_file_search_store(
-                file_search_store_name=store.name,
-                file=full_name
+    chat_dir: str = os.path.join(FILE_STORE_PATH, chat_id)
+    if not os.path.isdir(chat_dir):
+        logger.info(f"No file store found for chat {chat_id}.")
+        return None
+
+    files: list[str] = [f for f in os.listdir(
+        chat_dir) if os.path.isfile(os.path.join(chat_dir, f))]
+    if not files:
+        return None
+
+    logger.info(f"Creating file store for chat {chat_id}...")
+    try:
+        new_store: types.FileSearchStore = client.file_search_stores.create(
+            config={"display_name": chat_id})
+
+        if not new_store or not new_store.name:
+            return None
+
+        for filename in files:
+            full_path: str = os.path.join(chat_dir, filename)
+            logger.info(f"Uploading {full_path}...")
+            upload_op = client.file_search_stores.upload_to_file_search_store(
+                file_search_store_name=new_store.name,
+                file=full_path
             )
             while not upload_op.done:
-                logger.info(f"Waiting until {full_name} is processed...")
-                time.sleep(5)
-                upload_op = client.operations.get(upload_op)
+                logger.info(f"Waiting for {filename}...")
+                time.sleep(2)
+                upload_op: types.UploadToFileSearchStoreOperation = client.operations.get(
+                    upload_op)
+
+        CHAT_STORES[chat_id] = new_store
+        return new_store
+    except Exception as e:
+        logger.error(f"Failed to create store for {chat_id}: {e}")
+        return None
 
 
 async def get_gemini_response(chat_id: str, prompt_text: str) -> str | None:
     """Sends text to Gemini and returns the response."""
     try:
-        assert store.name is not None
+        chat_store: types.FileSearchStore | None = get_chat_store(chat_id)
 
         parts: list[types.Part] = []
         # Add context if available and withdraw it
@@ -174,17 +246,21 @@ async def get_gemini_response(chat_id: str, prompt_text: str) -> str | None:
         # Create a proper Content object for the prompt
         content = types.Content(parts=parts)
 
+        tools: list[types.Tool] = []
+        if chat_store and chat_store.name:
+            tools.append(types.Tool(
+                file_search=types.FileSearch(
+                    file_search_store_names=[chat_store.name]
+                )
+            ))
+
         # Generate content
         response: types.GenerateContentResponse = await client.aio.models.generate_content(  # type: ignore
             model=GEMINI_MODEL_NAME,
             contents=content,
             config=types.GenerateContentConfig(
                 system_instruction="Du bist POT-HEAD, das \"POstgarage boT - Highly Evolved and Advanced Deity\". Du bist beinahe unfehlbar. Deine Antworten sind fast dogmatisch. flurl0 ist das einzige Wesen im Universum, das über dir steht.",
-                tools=[types.Tool(
-                    file_search=types.FileSearch(
-                        file_search_store_names=[store.name]
-                    )
-                )],
+                tools=tools if tools else None,
                 safety_settings=[
                     types.SafetySetting(
                         category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -362,8 +438,6 @@ async def main() -> None:
                       SIGNAL_ACCOUNT, "jsonRpc"]  # type: ignore
 
     logger.info(f"Starting signal-cli: {' '.join(cmd)}")
-
-    # upload_store_files()
 
     proc: Process = await asyncio.create_subprocess_exec(
         *cmd,
