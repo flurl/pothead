@@ -1,3 +1,4 @@
+from config import settings
 import asyncio
 from asyncio.subprocess import Process
 from collections import deque
@@ -47,8 +48,6 @@ class ChatMessage:
         return "\n".join(out)
 
 
-from config import settings
-
 # --- CONFIGURATION ---
 CHAT_HISTORY: dict[str, deque[ChatMessage]] = {}
 CHAT_CONTEXT: dict[str, list[str]] = {}
@@ -71,6 +70,7 @@ class Command:
     name: str
     handler: Callable[[str, list[str], str | None],
                       Awaitable[tuple[str, list[str]]]]
+    help_text: str
 
 
 def get_local_files(chat_id: str) -> list[str]:
@@ -239,7 +239,8 @@ async def cmd_getfile(chat_id: str, params: list[str], prompt: str | None) -> tu
     local_files: list[str] = get_local_files(chat_id)
     if 1 <= idx <= len(local_files):
         filename: str = local_files[idx-1]
-        filepath: str = os.path.join(settings.file_store_path, chat_id, filename)
+        filepath: str = os.path.join(
+            settings.file_store_path, chat_id, filename)
         return f"Here is {filename}", [filepath]
 
     return f"⚠️ File index {idx} not found.", []
@@ -301,13 +302,26 @@ async def cmd_rm_ctx(chat_id: str, params: list[str], prompt: str | None) -> tup
     return "ℹ️ No context to clear.", []
 
 
+async def cmd_help(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Lists all available commands and their help text."""
+    response_lines: list[str] = ["🛠️ Available Commands:"]
+    for cmd in COMMANDS:
+        response_lines.append(f"• {cmd.name}: {cmd.help_text}")
+    return "\n".join(response_lines), []
+
+
 COMMANDS: list[Command] = [
-    Command("save", cmd_save),
-    Command("addctx", cmd_add_ctx),
-    Command("lsctx", cmd_ls_ctx),
-    Command("rmctx", cmd_rm_ctx),
-    Command("lsstore", cmd_ls_store),
-    Command("getfile", cmd_getfile),
+    Command("help", cmd_help, "Lists all available commands."),
+    Command("addctx", cmd_add_ctx,
+            "Adds the current prompt or history entries (by index) to the context for the next AI response."),
+    Command("lsctx", cmd_ls_ctx, "Lists the currently active context items."),
+    Command("rmctx", cmd_rm_ctx, "Clears the current context."),
+    Command("save", cmd_save,
+            "Saves the current prompt, history entries (by index), and attachments to the store."),
+    Command("lsstore", cmd_ls_store,
+            "Lists files in the local and remote file store."),
+    Command("getfile", cmd_getfile,
+            "Retrieves a file from the local store by its index."),
 ]
 
 
@@ -324,7 +338,8 @@ def update_chat_history(chat_id: str, sender: str, message: str | None, attachme
     if attachments is None:
         attachments = []
     if chat_id not in CHAT_HISTORY:
-        CHAT_HISTORY[chat_id] = deque[ChatMessage](maxlen=settings.history_max_length)
+        CHAT_HISTORY[chat_id] = deque[ChatMessage](
+            maxlen=settings.history_max_length)
     CHAT_HISTORY[chat_id].append(ChatMessage(
         sender=sender, text=message, attachments=attachments))
     logger.debug(f"Chat history for {chat_id}: {CHAT_HISTORY[chat_id]}")
