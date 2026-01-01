@@ -1,1 +1,2 @@
 google-genai>=0.0.1
+pydantic-settings

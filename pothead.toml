@@ -1,0 +1,27 @@
+# Default configuration for Pothead
+# These values can be overridden by environment variables.
+# For example, to override the gemini_model_name, set the
+# POTHEAD_GEMINI_MODEL_NAME environment variable.
+
+# Path to your signal-cli executable
+# signal_cli_path = "signal-cli-0.13.22-Linux-native/bin/signal-cli"
+
+# Path to signal-cli's attachments directory
+signal_attachments_path = "~/.local/share/signal-cli/attachments"
+
+# Gemini model name
+gemini_model_name = "gemini-2.5-flash"
+
+# Words to trigger the bot
+trigger_words = ["!pot", "!pothead", "!ph"]
+
+# Path to store documents
+file_store_path = "document_store"
+
+# Max length of chat history
+history_max_length = 30
+
+# Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+log_level = "INFO"
+
+system_instruction = "Du bist POT-HEAD, \"POstgarage boT - Highly Evolved and Advanced Deity\". Du bist beinahe unfehlbar. Deine Antworten sind fast dogmatisch. flurl0 ist das einzige Wesen im Universum, das über dir steht."

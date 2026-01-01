@@ -47,41 +47,23 @@ class ChatMessage:
         return "\n".join(out)
 
 
+from config import settings
+
 # --- CONFIGURATION ---
-# Path to your signal-cli executable
-SCRIPT_DIR: str = os.path.dirname(os.path.abspath(__file__))
-SIGNAL_CLI_PATH: str = os.path.join(SCRIPT_DIR, "signal-cli", "signal-cli")
-SIGNAL_ATTACHMENTS_PATH: str = os.path.expanduser(
-    "~/.local/share/signal-cli/attachments")
-
-# Load sensitive data from environment variables
-SIGNAL_ACCOUNT: str | None = os.getenv("SIGNAL_ACCOUNT")
-TARGET_SENDER: str | None = os.getenv("TARGET_SENDER")
-GEMINI_API_KEY: str | None = os.getenv("GEMINI_API_KEY")
-
-assert all((SIGNAL_ACCOUNT, TARGET_SENDER, GEMINI_API_KEY)
-           ), "Error: Please set SIGNAL_ACCOUNT, TARGET_SENDER, and GEMINI_API_KEY environment variables."
-
-# gemini 3 flash doesn't support file store (yet?)
-# GEMINI_MODEL_NAME = "gemini-3-flash-preview"
-GEMINI_MODEL_NAME: str = "gemini-2.5-flash"
-TRIGGER_WORDS: list[str] = ["!pot", "!pothead", "!ph"]
-FILE_STORE_PATH: str = "document_store"
 CHAT_HISTORY: dict[str, deque[ChatMessage]] = {}
-HISTORY_MAX_LENGTH: int = 30
 CHAT_CONTEXT: dict[str, list[str]] = {}
 CHAT_STORES: dict[str, types.FileSearchStore] = {}
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=settings.log_level.upper(),
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger: logging.Logger = logging.getLogger(__name__)
 
 # Configure Gemini
-client = genai.Client(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=settings.gemini_api_key)
 
 
 @dataclass
@@ -92,7 +74,7 @@ class Command:
 
 
 def get_local_files(chat_id: str) -> list[str]:
-    chat_dir: str = os.path.join(FILE_STORE_PATH, chat_id)
+    chat_dir: str = os.path.join(settings.file_store_path, chat_id)
     if os.path.isdir(chat_dir):
         return sorted([f for f in os.listdir(chat_dir) if os.path.isfile(os.path.join(chat_dir, f))])
     return []
@@ -134,7 +116,7 @@ async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> tuple
         return "⚠️ Nothing to save.", []
 
     # File operations
-    chat_dir: str = os.path.join(FILE_STORE_PATH, chat_id)
+    chat_dir: str = os.path.join(settings.file_store_path, chat_id)
     os.makedirs(chat_dir, exist_ok=True)
 
     # Save Text
@@ -150,7 +132,7 @@ async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> tuple
     # Save Attachments
     saved_att_count = 0
     for att in attachments_to_save:
-        src: str = os.path.join(SIGNAL_ATTACHMENTS_PATH, att.id)
+        src: str = os.path.join(settings.signal_attachments_path, att.id)
         if os.path.exists(src):
             # Determine destination filename
             dest_name: str = att.id
@@ -257,7 +239,7 @@ async def cmd_getfile(chat_id: str, params: list[str], prompt: str | None) -> tu
     local_files: list[str] = get_local_files(chat_id)
     if 1 <= idx <= len(local_files):
         filename: str = local_files[idx-1]
-        filepath: str = os.path.join(FILE_STORE_PATH, chat_id, filename)
+        filepath: str = os.path.join(settings.file_store_path, chat_id, filename)
         return f"Here is {filename}", [filepath]
 
     return f"⚠️ File index {idx} not found.", []
@@ -342,7 +324,7 @@ def update_chat_history(chat_id: str, sender: str, message: str | None, attachme
     if attachments is None:
         attachments = []
     if chat_id not in CHAT_HISTORY:
-        CHAT_HISTORY[chat_id] = deque[ChatMessage](maxlen=HISTORY_MAX_LENGTH)
+        CHAT_HISTORY[chat_id] = deque[ChatMessage](maxlen=settings.history_max_length)
     CHAT_HISTORY[chat_id].append(ChatMessage(
         sender=sender, text=message, attachments=attachments))
     logger.debug(f"Chat history for {chat_id}: {CHAT_HISTORY[chat_id]}")
@@ -354,7 +336,7 @@ def get_chat_store(chat_id: str) -> types.FileSearchStore | None:
     if chat_id in CHAT_STORES:
         return CHAT_STORES[chat_id]
 
-    chat_dir: str = os.path.join(FILE_STORE_PATH, chat_id)
+    chat_dir: str = os.path.join(settings.file_store_path, chat_id)
     if not os.path.isdir(chat_dir):
         logger.info(f"No file store found for chat {chat_id}.")
         return None
@@ -419,10 +401,10 @@ async def get_gemini_response(chat_id: str, prompt_text: str) -> str | None:
 
         # Generate content
         response: types.GenerateContentResponse = await client.aio.models.generate_content(  # type: ignore
-            model=GEMINI_MODEL_NAME,
+            model=settings.gemini_model_name,
             contents=content,
             config=types.GenerateContentConfig(
-                system_instruction="Du bist POT-HEAD, das \"POstgarage boT - Highly Evolved and Advanced Deity\". Du bist beinahe unfehlbar. Deine Antworten sind fast dogmatisch. flurl0 ist das einzige Wesen im Universum, das über dir steht.",
+                system_instruction=settings.system_instruction,
                 tools=tools if tools else None,
                 safety_settings=[
                     types.SafetySetting(
@@ -455,7 +437,7 @@ async def send_signal_message(proc: Process, recipient: str, message: str, group
     Supports direct messages (recipient) and group messages (group_id).
     """
     params: dict[str, Any] = {
-        "account": SIGNAL_ACCOUNT,
+        "account": settings.signal_account,
         "message": message
     }
 
@@ -497,7 +479,7 @@ async def process_incoming_line(proc: Process, line: str) -> None:
 
         # 1. Filter by Sender immediately
         source = envelope.get("source")
-        if source != TARGET_SENDER:
+        if source != settings.target_sender:
             return
 
         # 2. Extract Message Body and Context (Group vs Direct)
@@ -567,8 +549,8 @@ async def process_incoming_line(proc: Process, line: str) -> None:
         if quote is not None:
             prompt = f"{prompt}\n\n{quote}"
 
-        TRIGGER_WORDS.sort(key=len, reverse=True)
-        for tw in TRIGGER_WORDS:
+        settings.trigger_words.sort(key=len, reverse=True)
+        for tw in settings.trigger_words:
             if clean_msg.startswith(tw):
                 content: str = clean_msg[len(tw):].strip()
                 if content.startswith("#"):
@@ -625,8 +607,8 @@ async def process_incoming_line(proc: Process, line: str) -> None:
 async def main() -> None:
     # Start signal-cli in jsonRpc mode
     # -a specifies the account sending/receiving
-    cmd: list[str] = [SIGNAL_CLI_PATH, "-a",
-                      SIGNAL_ACCOUNT, "jsonRpc"]  # type: ignore
+    cmd: list[str] = [settings.signal_cli_path, "-a",
+                      settings.signal_account, "jsonRpc"]  # type: ignore
 
     logger.info(f"Starting signal-cli: {' '.join(cmd)}")
 
