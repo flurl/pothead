@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Callable
 
 from google import genai
 from google.genai import types
+from google.genai.pagers import Pager
 
 # --- CONFIGURATION ---
 # Path to your signal-cli executable
@@ -161,11 +162,66 @@ async def cmd_rm_ctx(chat_id: str, params: list[str], prompt: str | None) -> str
     return "ℹ️ No context to clear."
 
 
+async def cmd_ls_store(chat_id: str, params: list[str], prompt: str | None) -> str:
+    """Lists files in local storage and remote Gemini store."""
+    response_lines: list[str] = [f"📂 File Store for chat '{chat_id}':"]
+
+    # 1. Local Files
+    chat_dir: str = os.path.join(FILE_STORE_PATH, chat_id)
+    local_files: list[str] = []
+    if os.path.isdir(chat_dir):
+        local_files = sorted([f for f in os.listdir(
+            chat_dir) if os.path.isfile(os.path.join(chat_dir, f))])
+
+    response_lines.append(f"\n🏠 Local ({len(local_files)}):")
+    if local_files:
+        for f in local_files:
+            response_lines.append(f"  - {f}")
+    else:
+        response_lines.append("  (empty)")
+
+    # 2. Remote Files
+    response_lines.append("\n☁️ Remote (Gemini):")
+
+    store: types.FileSearchStore | None = CHAT_STORES.get(chat_id)
+
+    if not store:
+        response_lines.append(
+            "  (No active store in memory - send a message to initialize)")
+    elif not store.name:
+        response_lines.append("  (Store has no name)")
+    else:
+        try:
+            remote_files: list[str] = []
+            pager: Pager[types.Document] = client.file_search_stores.documents.list(
+                parent=store.name)
+            for f in pager:
+                name = getattr(f, "display_name", None)
+                if not name:
+                    name = getattr(f, "uri", getattr(f, "name", "Unknown"))
+                remote_files.append(name)
+
+            remote_files.sort()
+
+            response_lines.append(f"  (Store ID: {store.name.split('/')[-1]})")
+            if remote_files:
+                for f in remote_files:
+                    response_lines.append(f"  - {f}")
+            else:
+                response_lines.append("  (empty)")
+
+        except Exception as e:
+            response_lines.append(f"  ❌ Error listing remote files: {e}")
+
+    return "\n".join(response_lines)
+
+
 COMMANDS: list[Command] = [
     Command("save", cmd_save),
     Command("addctx", cmd_add_ctx),
     Command("lsctx", cmd_ls_ctx),
     Command("rmctx", cmd_rm_ctx),
+    Command("lsstore", cmd_ls_store),
 ]
 
 
