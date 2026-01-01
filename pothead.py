@@ -7,16 +7,52 @@ import logging
 import os
 import sys
 import time
-from typing import Any, Awaitable, Callable
+import shutil
+from typing import Any, Awaitable, Callable, cast
 
 from google import genai
 from google.genai import types
 from google.genai.pagers import Pager
 
+
+@dataclass
+class Attachment:
+    content_type: str
+    id: str
+    size: int
+    filename: str | None = None
+    width: int | None = None
+    height: int | None = None
+    caption: str | None = None
+
+
+@dataclass
+class ChatMessage:
+    sender: str
+    text: str | None
+    attachments: list[Attachment]
+
+    def __str__(self) -> str:
+        out: list[str] = []
+        if self.text:
+            out.append(self.text)
+        if self.attachments:
+            out.append(f"[Attachments: {len(self.attachments)}]")
+            for att in self.attachments:
+                name: str = att.filename if att.filename else att.id
+                details: str = f"{name} ({att.content_type})"
+                if att.caption:
+                    details += f" Caption: {att.caption}"
+                out.append(f"  - {details}")
+        return "\n".join(out)
+
+
 # --- CONFIGURATION ---
 # Path to your signal-cli executable
 SCRIPT_DIR: str = os.path.dirname(os.path.abspath(__file__))
 SIGNAL_CLI_PATH: str = os.path.join(SCRIPT_DIR, "signal-cli", "signal-cli")
+SIGNAL_ATTACHMENTS_PATH: str = os.path.expanduser(
+    "~/.local/share/signal-cli/attachments")
 
 # Load sensitive data from environment variables
 SIGNAL_ACCOUNT: str | None = os.getenv("SIGNAL_ACCOUNT")
@@ -31,7 +67,8 @@ assert all((SIGNAL_ACCOUNT, TARGET_SENDER, GEMINI_API_KEY)
 GEMINI_MODEL_NAME: str = "gemini-2.5-flash"
 TRIGGER_WORDS: list[str] = ["!pot", "!pothead", "!ph"]
 FILE_STORE_PATH: str = "document_store"
-CHAT_HISTORY: dict[str, deque[str]] = {}
+CHAT_HISTORY: dict[str, deque[ChatMessage]] = {}
+HISTORY_MAX_LENGTH: int = 30
 CHAT_CONTEXT: dict[str, list[str]] = {}
 CHAT_STORES: dict[str, types.FileSearchStore] = {}
 
@@ -50,42 +87,92 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 @dataclass
 class Command:
     name: str
-    handler: Callable[[str, list[str], str | None], Awaitable[str]]
+    handler: Callable[[str, list[str], str | None],
+                      Awaitable[tuple[str, list[str]]]]
 
 
-async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> str:
-    """Saves prompt and history entries to saved_context.txt and updates the file store."""
+def get_local_files(chat_id: str) -> list[str]:
+    chat_dir: str = os.path.join(FILE_STORE_PATH, chat_id)
+    if os.path.isdir(chat_dir):
+        return sorted([f for f in os.listdir(chat_dir) if os.path.isfile(os.path.join(chat_dir, f))])
+    return []
+
+
+async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Saves prompt, history entries, and attachments to the store."""
     lines_to_save: list[str] = []
+    attachments_to_save: list[Attachment] = []
 
     # Process parameters (history indices)
     if chat_id in CHAT_HISTORY:
-        history: deque[str] = CHAT_HISTORY[chat_id]
+        history: deque[ChatMessage] = CHAT_HISTORY[chat_id]
+
+        # 1. Check current message (the command itself) for attachments
+        if history:
+            current_msg: ChatMessage = history[-1]
+            if current_msg.attachments:
+                attachments_to_save.extend(current_msg.attachments)
+
+        # 2. Check requested history entries
         for p in params:
             try:
                 idx = int(p)
                 # 1-based index from end, skipping the command itself
                 if 1 <= idx < len(history):
-                    lines_to_save.append(history[-idx-1])
+                    msg: ChatMessage = history[-idx-1]
+                    if msg.text:
+                        lines_to_save.append(msg.text)
+                    if msg.attachments:
+                        attachments_to_save.extend(msg.attachments)
             except ValueError:
                 pass
 
     if prompt:
         lines_to_save.append(prompt)
 
-    if not lines_to_save:
-        return "⚠️ Nothing to save."
+    if not lines_to_save and not attachments_to_save:
+        return "⚠️ Nothing to save.", []
 
     # File operations
     chat_dir: str = os.path.join(FILE_STORE_PATH, chat_id)
     os.makedirs(chat_dir, exist_ok=True)
-    file_path: str = os.path.join(chat_dir, "saved_context.txt")
 
-    try:
-        with open(file_path, "a", encoding="utf-8") as f:
-            for line in lines_to_save:
-                f.write(f"{line}\n")
-    except Exception as e:
-        return f"❌ Error writing file: {e}"
+    # Save Text
+    if lines_to_save:
+        file_path: str = os.path.join(chat_dir, "saved_context.txt")
+        try:
+            with open(file_path, "a", encoding="utf-8") as f:
+                for line in lines_to_save:
+                    f.write(f"{line}\n")
+        except Exception as e:
+            return f"❌ Error writing file: {e}", []
+
+    # Save Attachments
+    saved_att_count = 0
+    for att in attachments_to_save:
+        src: str = os.path.join(SIGNAL_ATTACHMENTS_PATH, att.id)
+        if os.path.exists(src):
+            # Determine destination filename
+            dest_name: str = att.id
+            if att.filename:
+                safe_name: str = "".join(
+                    c if ('a' <= c <= 'z'
+                          or 'A' <= c <= 'Z'
+                          or '0' <= c <= '9'
+                          or c in "._-")
+                    else "_" for c in att.filename
+                )
+                dest_name = f"{safe_name}"
+
+            dest: str = os.path.join(chat_dir, dest_name)
+            try:
+                shutil.copy2(src, dest)
+                saved_att_count += 1
+                logger.info(f"Saved attachment {att.id} to {dest}")
+            except Exception as e:
+                logger.error(f"Failed to copy attachment {src} to {dest}: {e}")
+        else:
+            logger.warning(f"Attachment file not found: {src}")
 
     # Update Gemini Store
     # Invalidate cache and delete old store to force re-upload
@@ -93,7 +180,7 @@ async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> str:
         store: types.FileSearchStore = CHAT_STORES[chat_id]
         if store.name is None:
             logger.error(f"Store name is None.")
-            return f"❌ Store name is None."
+            return f"❌ Store name is None.", []
         try:
             client.file_search_stores.delete(name=store.name)
         except Exception as e:
@@ -103,80 +190,22 @@ async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> str:
     # Trigger recreation/upload
     get_chat_store(chat_id)
 
-    return f"💾 Saved {len(lines_to_save)} items to saved_context.txt and updated store."
+    return f"💾 Saved {len(lines_to_save)} text items and {saved_att_count} attachments to store.", []
 
 
-async def cmd_add_ctx(chat_id: str, params: list[str], prompt: str | None = None) -> str:
-    """Saves prompt and history entries as context for the next Gemini call."""
-    if chat_id not in CHAT_CONTEXT:
-        CHAT_CONTEXT[chat_id] = []
-
-    saved_count = 0
-
-    # Process parameters (history indices)
-    if chat_id in CHAT_HISTORY:
-        history: deque[str] = CHAT_HISTORY[chat_id]
-        for p in params:
-            try:
-                idx = int(p)
-                if 1 <= idx <= 10 and idx <= len(history):
-                    # 1-based index from end: 1 -> -1 (most recent)
-                    # skip the last history entry which is the command itself
-                    # therefore the -1
-                    CHAT_CONTEXT[chat_id].append(history[-idx-1])
-                    saved_count += 1
-            except ValueError:
-                pass
-
-    if prompt:
-        CHAT_CONTEXT[chat_id].append(prompt)
-        saved_count += 1
-
-    return f"💾 Context saved ({saved_count} items). Will be used in next call."
-
-
-async def cmd_ls_ctx(chat_id: str, params: list[str], prompt: str | None) -> str:
-    print(CHAT_CONTEXT)
-    """Lists the currently saved context for the chat."""
-    if chat_id not in CHAT_CONTEXT or not CHAT_CONTEXT[chat_id]:
-        return "ℹ️ No context is currently saved for this chat."
-
-    context_items: list[str] = CHAT_CONTEXT[chat_id]
-    response_lines: list[str] = ["📝 Current Context:"]
-    for i, item in enumerate(context_items, 1):
-        # Get first 5 words and add "..." if longer
-        words: list[str] = item.split()
-        snippet: str = " ".join(words[:5])
-        if len(words) > 5:
-            snippet += "..."
-        response_lines.append(f"{i}. {snippet}")
-
-    return "\n".join(response_lines)
-
-
-async def cmd_rm_ctx(chat_id: str, params: list[str], prompt: str | None) -> str:
-    """Deletes all context for the current chat."""
-    if chat_id in CHAT_CONTEXT:
-        del CHAT_CONTEXT[chat_id]
-        return "🗑️ Context cleared."
-    return "ℹ️ No context to clear."
-
-
-async def cmd_ls_store(chat_id: str, params: list[str], prompt: str | None) -> str:
+async def cmd_ls_store(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     """Lists files in local storage and remote Gemini store."""
     response_lines: list[str] = [f"📂 File Store for chat '{chat_id}':"]
 
     # 1. Local Files
-    chat_dir: str = os.path.join(FILE_STORE_PATH, chat_id)
-    local_files: list[str] = []
-    if os.path.isdir(chat_dir):
-        local_files = sorted([f for f in os.listdir(
-            chat_dir) if os.path.isfile(os.path.join(chat_dir, f))])
+    local_files = get_local_files(chat_id)
 
     response_lines.append(f"\n🏠 Local ({len(local_files)}):")
     if local_files:
+        idx: int = 1
         for f in local_files:
-            response_lines.append(f"  - {f}")
+            response_lines.append(f"  {idx:>3}: {f}")
+            idx += 1
     else:
         response_lines.append("  (empty)")
 
@@ -196,9 +225,10 @@ async def cmd_ls_store(chat_id: str, params: list[str], prompt: str | None) -> s
             pager: Pager[types.Document] = client.file_search_stores.documents.list(
                 parent=store.name)
             for f in pager:
-                name = getattr(f, "display_name", None)
-                if not name:
+                name: str | None = getattr(f, "display_name", None)
+                if name is None:
                     name = getattr(f, "uri", getattr(f, "name", "Unknown"))
+                name = cast(str, name)
                 remote_files.append(name)
 
             remote_files.sort()
@@ -213,7 +243,80 @@ async def cmd_ls_store(chat_id: str, params: list[str], prompt: str | None) -> s
         except Exception as e:
             response_lines.append(f"  ❌ Error listing remote files: {e}")
 
-    return "\n".join(response_lines)
+    return "\n".join(response_lines), []
+
+
+async def cmd_getfile(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    if not params:
+        return "⚠️ Please provide a file index.", []
+    try:
+        idx = int(params[0])
+    except ValueError:
+        return "⚠️ Invalid index.", []
+
+    local_files: list[str] = get_local_files(chat_id)
+    if 1 <= idx <= len(local_files):
+        filename: str = local_files[idx-1]
+        filepath: str = os.path.join(FILE_STORE_PATH, chat_id, filename)
+        return f"Here is {filename}", [filepath]
+
+    return f"⚠️ File index {idx} not found.", []
+
+
+async def cmd_add_ctx(chat_id: str, params: list[str], prompt: str | None = None) -> tuple[str, list[str]]:
+    """Saves prompt and history entries as context for the next Gemini call."""
+    if chat_id not in CHAT_CONTEXT:
+        CHAT_CONTEXT[chat_id] = []
+
+    saved_count = 0
+
+    # Process parameters (history indices)
+    if chat_id in CHAT_HISTORY:
+        history: deque[ChatMessage] = CHAT_HISTORY[chat_id]
+        for p in params:
+            try:
+                idx = int(p)
+                if 1 <= idx <= 10 and idx <= len(history):
+                    # 1-based index from end: 1 -> -1 (most recent)
+                    # skip the last history entry which is the command itself
+                    # therefore the -1
+                    CHAT_CONTEXT[chat_id].append(str(history[-idx-1]))
+                    saved_count += 1
+            except ValueError:
+                pass
+
+    if prompt:
+        CHAT_CONTEXT[chat_id].append(prompt)
+        saved_count += 1
+
+    return f"💾 Context saved ({saved_count} items). Will be used in next call.", []
+
+
+async def cmd_ls_ctx(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    print(CHAT_CONTEXT)
+    """Lists the currently saved context for the chat."""
+    if chat_id not in CHAT_CONTEXT or not CHAT_CONTEXT[chat_id]:
+        return "ℹ️ No context is currently saved for this chat.", []
+
+    context_items: list[str] = CHAT_CONTEXT[chat_id]
+    response_lines: list[str] = ["📝 Current Context:"]
+    for i, item in enumerate(context_items, 1):
+        # Get first 5 words and add "..." if longer
+        words: list[str] = item.split()
+        snippet: str = " ".join(words[:5])
+        if len(words) > 5:
+            snippet += "..."
+        response_lines.append(f"{i}. {snippet}")
+
+    return "\n".join(response_lines), []
+
+
+async def cmd_rm_ctx(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Deletes all context for the current chat."""
+    if chat_id in CHAT_CONTEXT:
+        del CHAT_CONTEXT[chat_id]
+        return "🗑️ Context cleared.", []
+    return "ℹ️ No context to clear.", []
 
 
 COMMANDS: list[Command] = [
@@ -222,22 +325,26 @@ COMMANDS: list[Command] = [
     Command("lsctx", cmd_ls_ctx),
     Command("rmctx", cmd_rm_ctx),
     Command("lsstore", cmd_ls_store),
+    Command("getfile", cmd_getfile),
 ]
 
 
-async def execute_command(chat_id: str, command: str, params: list[str], prompt: str | None = None) -> str:
+async def execute_command(chat_id: str, command: str, params: list[str], prompt: str | None = None) -> tuple[str, list[str]]:
     command = command.lower()
     """Executes the parsed command."""
     for cmd in COMMANDS:
         if cmd.name == command:
             return await cmd.handler(chat_id, params, prompt)
-    return f"❓ Unknown command: {command}"
+    return f"❓ Unknown command: {command}", []
 
 
-def update_chat_history(chat_id: str, sender: str, message: str) -> None:
+def update_chat_history(chat_id: str, sender: str, message: str | None, attachments: list[Attachment] | None = None) -> None:
+    if attachments is None:
+        attachments = []
     if chat_id not in CHAT_HISTORY:
-        CHAT_HISTORY[chat_id] = deque[str](maxlen=10)
-    CHAT_HISTORY[chat_id].append(message)
+        CHAT_HISTORY[chat_id] = deque[ChatMessage](maxlen=HISTORY_MAX_LENGTH)
+    CHAT_HISTORY[chat_id].append(ChatMessage(
+        sender=sender, text=message, attachments=attachments))
     logger.debug(f"Chat history for {chat_id}: {CHAT_HISTORY[chat_id]}")
     for line in CHAT_HISTORY[chat_id]:
         logger.debug(line)
@@ -342,7 +449,7 @@ async def get_gemini_response(chat_id: str, prompt_text: str) -> str | None:
         return f"Error querying Gemini: {str(e)}"
 
 
-async def send_signal_message(proc: Process, recipient: str, message: str, group_id: str | None = None) -> None:
+async def send_signal_message(proc: Process, recipient: str, message: str, group_id: str | None = None, attachments: list[str] | None = None) -> None:
     """
     Sends a message back via signal-cli JSON-RPC.
     Supports direct messages (recipient) and group messages (group_id).
@@ -356,6 +463,9 @@ async def send_signal_message(proc: Process, recipient: str, message: str, group
         params["groupId"] = group_id
     else:
         params["recipient"] = [recipient]
+
+    if attachments:
+        params["attachment"] = attachments
 
     rpc_request: dict[str, Any] = {
         "jsonrpc": "2.0",
@@ -395,6 +505,7 @@ async def process_incoming_line(proc: Process, line: str) -> None:
         message_body: str | None = None
         group_id: str | None = None
         quote: str | None = None
+        attachments: list[Attachment] = []
 
         # Case A: Standard Incoming Message
         if "dataMessage" in envelope:
@@ -405,6 +516,17 @@ async def process_incoming_line(proc: Process, line: str) -> None:
                     group_id = dm["groupInfo"].get("groupId")
                 if "quote" in dm:
                     quote = dm["quote"].get("text")
+                if "attachments" in dm:
+                    for att in dm["attachments"]:
+                        attachments.append(Attachment(
+                            content_type=att.get("contentType", "unknown"),
+                            id=att.get("id", ""),
+                            size=att.get("size", 0),
+                            filename=att.get("filename"),
+                            width=att.get("width"),
+                            height=att.get("height"),
+                            caption=att.get("caption")
+                        ))
 
         # Case B: Sync Message (Sent from your other devices)
         elif "syncMessage" in envelope:
@@ -417,16 +539,27 @@ async def process_incoming_line(proc: Process, line: str) -> None:
                     group_id = sent_msg["groupInfo"].get("groupId")
                 if "quote" in sm:
                     quote = sm["quote"].get("text")
+                if "attachments" in sent_msg:
+                    for att in sent_msg["attachments"]:
+                        attachments.append(Attachment(
+                            content_type=att.get("contentType", "unknown"),
+                            id=att.get("id", ""),
+                            size=att.get("size", 0),
+                            filename=att.get("filename"),
+                            width=att.get("width"),
+                            height=att.get("height"),
+                            caption=att.get("caption")
+                        ))
 
         # If no text found, ignore (e.g., receipts, typing indicators)
-        if not message_body:
+        if not message_body and not attachments:
             return
 
         chat_id: str = group_id if group_id else source
-        update_chat_history(chat_id, source, message_body)
+        update_chat_history(chat_id, source, message_body, attachments)
 
         # 3. Check Prefixes (!pothead or !pot or !ph)
-        clean_msg: str = message_body.strip()
+        clean_msg: str = message_body.strip() if message_body else ""
         prompt: str | None = None
         command: str | None = None
         command_params: list[str] = []
@@ -463,8 +596,10 @@ async def process_incoming_line(proc: Process, line: str) -> None:
         if command is not None:
             logger.info(
                 f"Processing command from {source} (Group: {group_id}): {command} {command_params}")
-            response_text = await execute_command(chat_id, command, command_params, prompt)
-            await send_signal_message(proc, source, response_text, group_id)
+            response_text: str | None = None
+            response_attachments: list[str] = []
+            response_text, response_attachments = await execute_command(chat_id, command, command_params, prompt)
+            await send_signal_message(proc, source, response_text, group_id, response_attachments)
             logger.info(f"Sent response to {source}")
 
         elif prompt is not None:
