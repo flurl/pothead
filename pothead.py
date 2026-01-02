@@ -5,6 +5,7 @@ from collections import deque
 from dataclasses import dataclass
 import json
 import logging
+import hashlib
 import os
 import sys
 import time
@@ -75,8 +76,13 @@ class Command:
     help_text: str
 
 
+def get_safe_chat_dir(base_path: str, chat_id: str) -> str:
+    hashed_id = hashlib.sha256(chat_id.encode("utf-8")).hexdigest()
+    return os.path.join(base_path, hashed_id)
+
+
 def get_local_files(chat_id: str) -> list[str]:
-    chat_dir: str = os.path.join(settings.file_store_path, chat_id)
+    chat_dir: str = get_safe_chat_dir(settings.file_store_path, chat_id)
     if os.path.isdir(chat_dir):
         return sorted([f for f in os.listdir(chat_dir) if os.path.isfile(os.path.join(chat_dir, f))])
     return []
@@ -84,7 +90,7 @@ def get_local_files(chat_id: str) -> list[str]:
 
 def get_permissions_file(chat_id: str) -> str:
     store_path: str = settings.permissions_store_path
-    chat_dir: str = os.path.join(store_path, chat_id)
+    chat_dir: str = get_safe_chat_dir(store_path, chat_id)
     os.makedirs(chat_dir, exist_ok=True)
     return os.path.join(chat_dir, "permissions.json")
 
@@ -171,7 +177,7 @@ async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> tuple
         return "⚠️ Nothing to save.", []
 
     # File operations
-    chat_dir: str = os.path.join(settings.file_store_path, chat_id)
+    chat_dir: str = get_safe_chat_dir(settings.file_store_path, chat_id)
     os.makedirs(chat_dir, exist_ok=True)
 
     # Save Text
@@ -294,8 +300,8 @@ async def cmd_getfile(chat_id: str, params: list[str], prompt: str | None) -> tu
     local_files: list[str] = get_local_files(chat_id)
     if 1 <= idx <= len(local_files):
         filename: str = local_files[idx-1]
-        filepath: str = os.path.join(
-            settings.file_store_path, chat_id, filename)
+        chat_dir: str = get_safe_chat_dir(settings.file_store_path, chat_id)
+        filepath: str = os.path.join(chat_dir, filename)
         return f"Here is {filename}", [filepath]
 
     return f"⚠️ File index {idx} not found.", []
@@ -558,6 +564,19 @@ async def cmd_lsperms(chat_id: str, params: list[str], prompt: str | None) -> tu
     return "\n".join(response_lines), []
 
 
+async def cmd_lsdirs(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Lists the safe filesystem paths for the current chat."""
+    file_store_path: str = get_safe_chat_dir(settings.file_store_path, chat_id)
+    permissions_path: str = get_safe_chat_dir(
+        settings.permissions_store_path, chat_id)
+
+    response_lines: list[str] = [f"📂 Safe Paths for chat '{chat_id}':"]
+    response_lines.append(f"  - File Store: {file_store_path}")
+    response_lines.append(f"  - Permissions: {permissions_path}")
+
+    return "\n".join(response_lines), []
+
+
 async def cmd_help(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     """Lists all available commands and their help text."""
     response_lines: list[str] = ["🛠️ Available Commands:"]
@@ -590,6 +609,8 @@ COMMANDS: list[Command] = [
     Command("rmgroup", cmd_rmgroup, "Deletes a user group."),
     Command("lsperms", cmd_lsperms,
             "Lists all active permissions for the current chat."),
+    Command("lsdirs", cmd_lsdirs,
+            "Lists the safe filesystem paths for the current chat."),
 ]
 
 
@@ -622,7 +643,7 @@ def get_chat_store(chat_id: str) -> types.FileSearchStore | None:
     if chat_id in CHAT_STORES:
         return CHAT_STORES[chat_id]
 
-    chat_dir: str = os.path.join(settings.file_store_path, chat_id)
+    chat_dir: str = get_safe_chat_dir(settings.file_store_path, chat_id)
     if not os.path.isdir(chat_dir):
         logger.info(f"No file store found for chat {chat_id}.")
         return None
