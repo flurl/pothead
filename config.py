@@ -13,14 +13,15 @@ class Settings(BaseSettings):
 
     # Sensitive settings from environment variables
     signal_account: str
-    target_sender: str
     gemini_api_key: str
+    superuser: str
 
     # Settings from pothead.toml with environment variable overrides
     signal_cli_path: str = "signal-cli/signal-cli"
     signal_attachments_path: str = os.path.expanduser(
         "~/.local/share/signal-cli/attachments"
     )
+    permissions_store_path: str = "permissions"
     gemini_model_name: str = "gemini-2.5-flash"
     trigger_words: List[str] = ["!pot", "!pothead", "!ph"]
     file_store_path: str = "document_store"

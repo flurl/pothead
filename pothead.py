@@ -9,11 +9,13 @@ import os
 import sys
 import time
 import shutil
-from typing import Any, Awaitable, Callable, cast
+from typing import Any, Awaitable, Callable, cast, TypeAlias
 
 from google import genai
 from google.genai import types
 from google.genai.pagers import Pager
+
+Permissions: TypeAlias = dict[str, dict[str, list[str] | dict[str, list[str]]]]
 
 
 @dataclass
@@ -78,6 +80,59 @@ def get_local_files(chat_id: str) -> list[str]:
     if os.path.isdir(chat_dir):
         return sorted([f for f in os.listdir(chat_dir) if os.path.isfile(os.path.join(chat_dir, f))])
     return []
+
+
+def get_permissions_file(chat_id: str) -> str:
+    store_path: str = settings.permissions_store_path
+    chat_dir: str = os.path.join(store_path, chat_id)
+    os.makedirs(chat_dir, exist_ok=True)
+    return os.path.join(chat_dir, "permissions.json")
+
+
+def load_permissions(chat_id: str) -> Permissions:
+    filepath: str = get_permissions_file(chat_id)
+    perms: Permissions = {"users": {}, "groups": {}}
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                perms = json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load permissions for {chat_id}: {e}")
+
+    if "groups" not in perms:
+        perms["groups"] = {}
+    if "ALL" not in perms["groups"]:
+        perms["groups"]["ALL"] = {"members": [], "permissions": []}
+    return perms
+
+
+def save_permissions(chat_id: str, perms: dict[str, Any]) -> None:
+    filepath: str = get_permissions_file(chat_id)
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(perms, f, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to save permissions for {chat_id}: {e}")
+
+
+def check_permission(chat_id: str, sender: str, command: str) -> bool:
+    superuser: str = settings.superuser
+    if superuser and sender == superuser:
+        return True
+
+    perms: dict[str, Any] = load_permissions(chat_id)
+
+    # 1. Direct user permission
+    if command in perms.get("users", {}).get(sender, []):
+        return True
+
+    # 2. Group permission
+    groups: dict[str, Any] = perms.get("groups", {})
+    for group_name, group_data in groups.items():
+        if (group_name == "ALL" or sender in group_data.get("members", [])) and command in group_data.get("permissions", []):
+            return True
+
+    return False
 
 
 async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
@@ -230,11 +285,11 @@ async def cmd_ls_store(chat_id: str, params: list[str], prompt: str | None) -> t
 
 async def cmd_getfile(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     if not params:
-        return "⚠️ Please provide a file index.", []
+        return "⚠️ Usage: getfile,<fileindex:int>", []
     try:
         idx = int(params[0])
     except ValueError:
-        return "⚠️ Invalid index.", []
+        return "⚠️ Usage: getfile,<fileindex:int>", []
 
     local_files: list[str] = get_local_files(chat_id)
     if 1 <= idx <= len(local_files):
@@ -302,6 +357,207 @@ async def cmd_rm_ctx(chat_id: str, params: list[str], prompt: str | None) -> tup
     return "ℹ️ No context to clear.", []
 
 
+async def cmd_grant(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Grants a command permission to a user."""
+    if len(params) < 2:
+        return "⚠️ Usage: grant,<command>,<user_id>", []
+
+    cmd_name: str = params[0].lower()
+    user_id: str = params[1]
+
+    if not any(c.name == cmd_name for c in COMMANDS):
+        return f"⚠️ Unknown command: {cmd_name}", []
+
+    perms: Permissions = load_permissions(chat_id)
+    if "users" not in perms:
+        perms["users"] = {}
+    if user_id not in perms["users"]:
+        perms["users"][user_id] = []
+
+    if cmd_name not in perms["users"][user_id]:
+        cast(list[str], perms["users"][user_id]).append(cmd_name)
+        save_permissions(chat_id, perms)
+        return f"✅ Granted '{cmd_name}' to {user_id}.", []
+
+    return f"ℹ️ {user_id} already has permission for '{cmd_name}'.", []
+
+
+async def cmd_mkgroup(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Creates a new user group."""
+    if not params:
+        return "⚠️ Usage: mkgroup,<group_name>", []
+
+    group_name: str = params[0]
+    perms: Permissions = load_permissions(chat_id)
+
+    if "groups" not in perms:
+        perms["groups"] = {}
+
+    if group_name in perms["groups"]:
+        return f"⚠️ Group '{group_name}' already exists.", []
+
+    perms["groups"][group_name] = {"members": [], "permissions": []}
+    save_permissions(chat_id, perms)
+    return f"✅ Group '{group_name}' created.", []
+
+
+async def cmd_addmember(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Adds a user to a group."""
+    if len(params) < 2:
+        return "⚠️ Usage: addmember,<group_name>,<user_id>", []
+
+    group_name: str = params[0]
+    user_id: str = params[1]
+
+    perms: Permissions = load_permissions(chat_id)
+    if group_name not in perms.get("groups", {}):
+        return f"⚠️ Group '{group_name}' not found.", []
+
+    if user_id not in cast(dict[str, list[str]], perms["groups"][group_name])["members"]:
+        cast(dict[str, list[str]], perms["groups"]
+             [group_name])["members"].append(user_id)
+        save_permissions(chat_id, perms)
+        return f"✅ Added {user_id} to group '{group_name}'.", []
+
+    return f"ℹ️ {user_id} is already in group '{group_name}'.", []
+
+
+async def cmd_grantgroup(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Grants a command permission to a group."""
+    if len(params) < 2:
+        return "⚠️ Usage: grantgroup,<command>,<group_name>", []
+
+    cmd_name: str = params[0].lower()
+    group_name: str = params[1]
+
+    if not any(c.name == cmd_name for c in COMMANDS):
+        return f"⚠️ Unknown command: {cmd_name}", []
+
+    perms: Permissions = load_permissions(chat_id)
+    if group_name not in perms.get("groups", {}):
+        return f"⚠️ Group '{group_name}' not found.", []
+
+    if cmd_name not in cast(dict[str, list[str]], perms["groups"][group_name])["permissions"]:
+        cast(dict[str, list[str]], perms["groups"][group_name])[
+            "permissions"].append(cmd_name)
+        save_permissions(chat_id, perms)
+        return f"✅ Granted '{cmd_name}' to group '{group_name}'.", []
+
+    return f"ℹ️ Group '{group_name}' already has permission for '{cmd_name}'.", []
+
+
+async def cmd_revoke(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Revokes a command permission from a user."""
+    if len(params) < 2:
+        return "⚠️ Usage: revoke,<command>,<user_id>", []
+
+    cmd_name: str = params[0].lower()
+    user_id: str = params[1]
+
+    perms: Permissions = load_permissions(chat_id)
+    if "users" not in perms or user_id not in perms["users"]:
+        return f"ℹ️ User {user_id} has no permissions to revoke.", []
+
+    user_perms = cast(list[str], perms["users"][user_id])
+    if cmd_name in user_perms:
+        user_perms.remove(cmd_name)
+        save_permissions(chat_id, perms)
+        return f"✅ Revoked '{cmd_name}' from {user_id}.", []
+
+    return f"ℹ️ {user_id} does not have permission for '{cmd_name}'.", []
+
+
+async def cmd_rmmember(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Removes a user from a group."""
+    if len(params) < 2:
+        return "⚠️ Usage: rmmember,<group_name>,<user_id>", []
+
+    group_name: str = params[0]
+    user_id: str = params[1]
+
+    perms: Permissions = load_permissions(chat_id)
+    if group_name not in perms.get("groups", {}):
+        return f"⚠️ Group '{group_name}' not found.", []
+
+    group_data = cast(dict[str, list[str]], perms["groups"][group_name])
+    if user_id in group_data["members"]:
+        group_data["members"].remove(user_id)
+        save_permissions(chat_id, perms)
+        return f"✅ Removed {user_id} from group '{group_name}'.", []
+
+    return f"ℹ️ {user_id} is not in group '{group_name}'.", []
+
+
+async def cmd_revokegroup(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Revokes a command permission from a group."""
+    if len(params) < 2:
+        return "⚠️ Usage: revokegroup,<command>,<group_name>", []
+
+    cmd_name: str = params[0].lower()
+    group_name: str = params[1]
+
+    perms: Permissions = load_permissions(chat_id)
+    if group_name not in perms.get("groups", {}):
+        return f"⚠️ Group '{group_name}' not found.", []
+
+    group_data = cast(dict[str, list[str]], perms["groups"][group_name])
+    if cmd_name in group_data["permissions"]:
+        group_data["permissions"].remove(cmd_name)
+        save_permissions(chat_id, perms)
+        return f"✅ Revoked '{cmd_name}' from group '{group_name}'.", []
+
+    return f"ℹ️ Group '{group_name}' does not have permission for '{cmd_name}'.", []
+
+
+async def cmd_rmgroup(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Deletes a user group."""
+    if not params:
+        return "⚠️ Usage: rmgroup,<group_name>", []
+
+    group_name: str = params[0]
+    perms: Permissions = load_permissions(chat_id)
+
+    if group_name not in perms.get("groups", {}):
+        return f"⚠️ Group '{group_name}' not found.", []
+
+    del perms["groups"][group_name]
+    save_permissions(chat_id, perms)
+    return f"✅ Group '{group_name}' deleted.", []
+
+
+async def cmd_lsperms(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Lists all active permissions for the current chat."""
+    perms: Permissions = load_permissions(chat_id)
+    response_lines: list[str] = [f"🔐 Permissions for chat '{chat_id}':"]
+
+    # Users
+    users = perms.get("users", {})
+    if users:
+        response_lines.append("\n👤 User Permissions:")
+        for user, cmds in cast(dict[str, list[str]], users).items():
+            cmd_list = ", ".join(cmds) if cmds else "(none)"
+            response_lines.append(f"  - {user}: {cmd_list}")
+    else:
+        response_lines.append("\n👤 User Permissions: (none)")
+
+    # Groups
+    groups = perms.get("groups", {})
+    if groups:
+        response_lines.append("\n👥 Group Permissions:")
+        for group_name, data in cast(dict[str, dict[str, list[str]]], groups).items():
+            members = ", ".join(data.get("members", []))
+            cmds = ", ".join(data.get("permissions", []))
+            response_lines.append(f"  - {group_name}:")
+            response_lines.append(
+                f"    Members: {members if members else '(none)'}")
+            response_lines.append(
+                f"    Commands: {cmds if cmds else '(none)'}")
+    else:
+        response_lines.append("\n👥 Group Permissions: (none)")
+
+    return "\n".join(response_lines), []
+
+
 async def cmd_help(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     """Lists all available commands and their help text."""
     response_lines: list[str] = ["🛠️ Available Commands:"]
@@ -322,12 +578,27 @@ COMMANDS: list[Command] = [
             "Lists files in the local and remote file store."),
     Command("getfile", cmd_getfile,
             "Retrieves a file from the local store by its index."),
+    Command("grant", cmd_grant, "Grants a command permission to a user."),
+    Command("mkgroup", cmd_mkgroup, "Creates a new user group."),
+    Command("addmember", cmd_addmember, "Adds a user to a group."),
+    Command("grantgroup", cmd_grantgroup,
+            "Grants a command permission to a group."),
+    Command("revoke", cmd_revoke, "Revokes a command permission from a user."),
+    Command("rmmember", cmd_rmmember, "Removes a user from a group."),
+    Command("revokegroup", cmd_revokegroup,
+            "Revokes a command permission from a group."),
+    Command("rmgroup", cmd_rmgroup, "Deletes a user group."),
+    Command("lsperms", cmd_lsperms,
+            "Lists all active permissions for the current chat."),
 ]
 
 
-async def execute_command(chat_id: str, command: str, params: list[str], prompt: str | None = None) -> tuple[str, list[str]]:
+async def execute_command(chat_id: str, sender: str, command: str, params: list[str], prompt: str | None = None) -> tuple[str, list[str]]:
     command = command.lower()
     """Executes the parsed command."""
+    if not check_permission(chat_id, sender, command):
+        return f"⛔ Permission denied for command: {command}", []
+
     for cmd in COMMANDS:
         if cmd.name == command:
             return await cmd.handler(chat_id, params, prompt)
@@ -493,9 +764,9 @@ async def process_incoming_line(proc: Process, line: str) -> None:
         envelope = params.get("envelope", {})
 
         # 1. Filter by Sender immediately
-        source = envelope.get("source")
-        if source != settings.target_sender:
-            return
+        source: str = envelope.get("source")
+        # if source != settings.target_sender:
+        #    return
 
         # 2. Extract Message Body and Context (Group vs Direct)
         # We need to look in two places: dataMessage (incoming) and syncMessage (sent from other devices)
@@ -595,7 +866,7 @@ async def process_incoming_line(proc: Process, line: str) -> None:
                 f"Processing command from {source} (Group: {group_id}): {command} {command_params}")
             response_text: str | None = None
             response_attachments: list[str] = []
-            response_text, response_attachments = await execute_command(chat_id, command, command_params, prompt)
+            response_text, response_attachments = await execute_command(chat_id, source, command, command_params, prompt)
             await send_signal_message(proc, source, response_text, group_id, response_attachments)
             logger.info(f"Sent response to {source}")
 
