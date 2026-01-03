@@ -1,5 +1,4 @@
 import os
-from typing import List, Tuple
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
 
 
@@ -23,11 +22,12 @@ class Settings(BaseSettings):
     )
     permissions_store_path: str = "permissions"
     gemini_model_name: str = "gemini-2.5-flash"
-    trigger_words: List[str] = ["!pot", "!pothead", "!ph"]
+    trigger_words: list[str] = ["!pot", "!pothead", "!ph"]
     file_store_path: str = "document_store"
     history_max_length: int = 30
     log_level: str = "INFO"
     system_instruction: str = "You are a helpful assistant."
+    plugins: list[str] = []
 
     @classmethod
     def settings_customise_sources(
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
         env_settings: PydanticBaseSettingsSource,
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
-    ) -> Tuple[PydanticBaseSettingsSource, ...]:
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
         return (
             init_settings,
             env_settings,

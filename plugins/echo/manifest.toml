@@ -1,0 +1,5 @@
+id = "echo"
+name = "Echo Plugin"
+description = "A simple plugin that echoes back any message it receives."
+version = "0.1.0"
+author = "Pothead-Dev"

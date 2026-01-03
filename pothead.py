@@ -1,20 +1,20 @@
+from collections.abc import Awaitable, Callable
 from config import settings
 import asyncio
 from asyncio.subprocess import Process
 from collections import deque
-from dataclasses import dataclass, field
 import json
 import logging
+from plugin_manager import PENDING_REPLIES, PLUGIN_ACTIONS, load_plugins
 
 import sys
-from typing import Any, Awaitable, Callable
-
-import jsonpath_ng
+from typing import Any
 
 from state import CHAT_HISTORY
 from ai import AI_PROVIDER
 from commands import COMMANDS
-from datatypes import Attachment, ChatMessage
+from datatypes import Attachment, ChatMessage, Action
+from messaging import send_signal_message
 from utils import check_permission
 
 
@@ -26,20 +26,6 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger: logging.Logger = logging.getLogger(__name__)
-
-
-@dataclass
-class Action:
-    name: str
-    jsonpath: str
-    handler: Callable[[Process, dict[str, Any]], Awaitable[None]]
-    _compiled_path: Any = field(init=False)
-
-    def __post_init__(self) -> None:
-        self._compiled_path = jsonpath_ng.parse(self.jsonpath)  # type: ignore
-
-    def matches(self, data: dict[str, Any]) -> bool:
-        return bool(self._compiled_path.find(data))
 
 
 async def execute_command(chat_id: str, sender: str, command: str, params: list[str], prompt: str | None = None) -> tuple[str, list[str]]:
@@ -66,40 +52,6 @@ def update_chat_history(chat_id: str, sender: str, message: str | None, attachme
     logger.debug(f"Chat history for {chat_id}: {CHAT_HISTORY[chat_id]}")
     for line in CHAT_HISTORY[chat_id]:
         logger.debug(line)
-
-
-async def send_signal_message(proc: Process, recipient: str, message: str, group_id: str | None = None, attachments: list[str] | None = None) -> None:
-    """
-    Sends a message back via signal-cli JSON-RPC.
-    Supports direct messages (recipient) and group messages (group_id).
-    """
-    params: dict[str, Any] = {
-        "account": settings.signal_account,
-        "message": message
-    }
-
-    if group_id:
-        params["groupId"] = group_id
-    else:
-        params["recipient"] = [recipient]
-
-    if attachments:
-        params["attachment"] = attachments
-
-    rpc_request: dict[str, Any] = {
-        "jsonrpc": "2.0",
-        "method": "send",
-        "params": params,
-        "id": "reply-id"
-    }
-
-    # Write to signal-cli stdin
-    try:
-        assert proc.stdin is not None
-        proc.stdin.write(json.dumps(rpc_request).encode('utf-8') + b"\n")
-        await proc.stdin.drain()
-    except Exception as e:
-        logger.error(f"Failed to send message: {e}")
 
 
 async def process_message(proc: Process, data: dict[str, Any]) -> None:
@@ -238,12 +190,22 @@ async def process_incoming_line(proc: Process, line: str) -> None:
     except json.JSONDecodeError:
         return
 
+    request_id = data.get("id")
+    if request_id and request_id in PENDING_REPLIES:
+        callback: Callable[[dict[str, Any]], Awaitable[None]
+                           ] = PENDING_REPLIES.pop(request_id)
+        await callback(data)
+        return
+
     for action in ACTIONS:
         if action.matches(data):
             await action.handler(proc, data)
 
 
 async def main() -> None:
+    # Load plugins before starting the main loop
+    load_plugins()
+    ACTIONS.extend(PLUGIN_ACTIONS)
     # Start signal-cli in jsonRpc mode
     # -a specifies the account sending/receiving
     cmd: list[str] = [settings.signal_cli_path, "-a",

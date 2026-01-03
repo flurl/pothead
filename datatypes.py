@@ -1,6 +1,8 @@
-from dataclasses import dataclass
-from typing import TypeAlias
+from dataclasses import dataclass, field
+from typing import Any, TypeAlias
+from collections.abc import Awaitable, Callable
 
+import jsonpath_ng
 
 Permissions: TypeAlias = dict[str, dict[str, list[str] | dict[str, list[str]]]]
 
@@ -35,3 +37,17 @@ class ChatMessage:
                     details += f" Caption: {att.caption}"
                 out.append(f"  - {details}")
         return "\n".join(out)
+
+
+@dataclass
+class Action:
+    name: str
+    jsonpath: str
+    handler: Callable[[Any, dict[str, Any]], Awaitable[None]]
+    _compiled_path: Any = field(init=False)
+
+    def __post_init__(self) -> None:
+        self._compiled_path = jsonpath_ng.parse(self.jsonpath)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType] # nopep8
+
+    def matches(self, data: dict[str, Any]) -> bool:
+        return bool(self._compiled_path.find(data))
