@@ -58,10 +58,16 @@ class Action:
     handler: Callable[[Any, dict[str, Any]], Awaitable[None]]
     priority: Priority = Priority.NORMAL
     halt: bool = False
+    filter: Callable[[Any], bool] | None = None
     _compiled_path: Any = field(init=False)
 
     def __post_init__(self) -> None:
         self._compiled_path = jsonpath_ng.ext.parse(self.jsonpath)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType] # nopep8
 
     def matches(self, data: dict[str, Any]) -> bool:
-        return bool(self._compiled_path.find(data))
+        matches: Any = self._compiled_path.find(data)
+        if not matches:
+            return False
+        if self.filter:
+            return any(self.filter(match.value) for match in matches)
+        return True

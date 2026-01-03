@@ -35,7 +35,6 @@ async def execute_command(chat_id: str, sender: str, command: str, params: list[
         return f"⛔ Permission denied for command: {command}", []
 
     for cmd in COMMANDS:
-        print(f"Checking command: {cmd.name} == {command}")
         if cmd.name == command:
             return await cmd.handler(chat_id, params, prompt)
     return f"❓ Unknown command: {command}", []
@@ -212,35 +211,40 @@ async def send_to_gemini(proc: Process, data: dict[str, Any]) -> None:
     logger.info(f"Sent response to {source}")
 
 
+# dataMessage are usual messages from signal accounts
+# syncMessage are messages sent from me on other devices (or received there while PH was offline)
+# the order is important as we want to first check for !TRIGGER#CMD and then for just !TRIGGER
 ACTIONS: list[Action] = [
     Action(
         name="Handle Command in Data Message",
-        jsonpath="$.params.envelope[?(@.message =~ '^!ph#')]",
+        jsonpath="$.params.envelope.dataMessage.message",
+        filter=lambda msg: msg.strip().startswith(
+            tuple(w+"#" for w in settings.trigger_words)),
         handler=handle_command,
         priority=Priority.LOW,
         halt=True
     ),
     Action(
         name="Handle Command in Sync Message",
-        jsonpath="$.params.envelope.syncMessage[?(@.message =~ '^!ph#')]",
+        jsonpath="$.params.envelope.syncMessage.sentMessage.message",
+        filter=lambda msg: msg.strip().startswith(
+            tuple(w+"#" for w in settings.trigger_words)),
         handler=handle_command,
         priority=Priority.LOW,
         halt=True
     ),
     Action(
         name="Handle Data Message",
-        jsonpath="$.params.envelope[?(@.message =~ '^!ph')]",
+        jsonpath="$.params.envelope.dataMessage.message",
+        filter=lambda msg: msg.strip().startswith(tuple(settings.trigger_words)),
         handler=send_to_gemini,
         priority=Priority.LOW,
         halt=True
     ),
     Action(
         name="Handle Sync Message",
-        # Correct Path:
-        # 1. We stop at .syncMessage
-        # 2. We apply [?] to it, which iterates over its value (the sentMessage object)
-        # 3. We check @.message (the message field inside sentMessage)
-        jsonpath="$.params.envelope.syncMessage[?(@.message =~ '^!ph')]",
+        jsonpath="$.params.envelope.syncMessage.sentMessage.message",
+        filter=lambda msg: msg.strip().startswith(tuple(settings.trigger_words)),
         handler=send_to_gemini,
         priority=Priority.LOW,
         halt=True
