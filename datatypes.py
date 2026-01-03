@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Any, TypeAlias
 from collections.abc import Awaitable, Callable
+from enum import Enum
 
-import jsonpath_ng
+import jsonpath_ng.ext
 
 Permissions: TypeAlias = dict[str, dict[str, list[str] | dict[str, list[str]]]]
 
@@ -39,15 +40,28 @@ class ChatMessage:
         return "\n".join(out)
 
 
+class Priority(Enum):
+    """
+    Enum to define the priority of actions.
+    Higher value means higher priority.
+    """
+    LOW = 1
+    NORMAL = 2
+    HIGH = 3
+    SYS = 4
+
+
 @dataclass
 class Action:
     name: str
     jsonpath: str
     handler: Callable[[Any, dict[str, Any]], Awaitable[None]]
+    priority: Priority = Priority.NORMAL
+    halt: bool = False
     _compiled_path: Any = field(init=False)
 
     def __post_init__(self) -> None:
-        self._compiled_path = jsonpath_ng.parse(self.jsonpath)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType] # nopep8
+        self._compiled_path = jsonpath_ng.ext.parse(self.jsonpath)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType] # nopep8
 
     def matches(self, data: dict[str, Any]) -> bool:
         return bool(self._compiled_path.find(data))

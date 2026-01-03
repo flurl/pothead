@@ -13,7 +13,7 @@ from typing import Any
 from state import CHAT_HISTORY
 from ai import AI_PROVIDER
 from commands import COMMANDS
-from datatypes import Attachment, ChatMessage, Action
+from datatypes import Attachment, ChatMessage, Action, Priority
 from messaging import send_signal_message
 from utils import check_permission
 
@@ -54,8 +54,80 @@ def update_chat_history(chat_id: str, sender: str, message: str | None, attachme
         logger.debug(line)
 
 
-async def process_message(proc: Process, data: dict[str, Any]) -> None:
-    """Default action handler for incoming messages."""
+async def handle_command(proc: Process, data: dict[str, Any]) -> None:
+    """Handles incoming commands."""
+    params = data.get("params", {})
+    envelope = params.get("envelope", {})
+    source = envelope.get("source")
+
+    message_body: str | None = None
+    group_id: str | None = None
+    quote: str | None = None
+    attachments: list[Attachment] = []
+
+    msg_payload: dict[str, Any] | None = None
+    if "dataMessage" in envelope:
+        msg_payload = envelope.get("dataMessage")
+    elif "syncMessage" in envelope:
+        msg_payload = envelope.get("syncMessage", {}).get("sentMessage")
+
+    if msg_payload:
+        message_body = msg_payload.get("message")
+        if "groupInfo" in msg_payload:
+            group_id = msg_payload["groupInfo"].get("groupId")
+        if "quote" in msg_payload:
+            quote = msg_payload["quote"].get("text")
+        if "attachments" in msg_payload:
+            for att in msg_payload["attachments"]:
+                attachments.append(Attachment(
+                    content_type=att.get("contentType", "unknown"),
+                    id=att.get("id", ""),
+                    size=att.get("size", 0),
+                    filename=att.get("filename"),
+                    width=att.get("width"),
+                    height=att.get("height"),
+                    caption=att.get("caption")
+                ))
+
+    if not message_body:
+        return
+
+    chat_id: str = group_id if group_id else source
+    clean_msg: str = message_body.strip()
+
+    settings.trigger_words.sort(key=len, reverse=True)
+    for tw in settings.trigger_words:
+        if clean_msg.startswith(tw):
+            content: str = clean_msg[len(tw):].strip()
+            if content.startswith("#"):
+                update_chat_history(chat_id, source, message_body, attachments)
+
+                cmd_content: str = content[1:]
+                if " " in cmd_content:
+                    cmd_part, prompt_part = cmd_content.split(" ", 1)
+                    prompt = prompt_part.strip()
+                else:
+                    cmd_part = cmd_content
+                    prompt = None
+
+                parts: list[str] = cmd_part.split(',')
+                command = parts[0].strip()
+                command_params = [p.strip()
+                                  for p in parts[1:]] if len(parts) > 1 else []
+
+                if quote is not None:
+                    prompt = f"{prompt}\n\n{quote}" if prompt else quote
+
+                logger.info(
+                    f"Processing command from {source} (Group: {group_id}): {command} {command_params}")
+                response_text, response_attachments = await execute_command(chat_id, source, command, command_params, prompt)
+                await send_signal_message(proc, source, response_text, group_id, response_attachments)
+                logger.info(f"Sent response to {source}")
+                return
+
+
+async def send_to_gemini(proc: Process, data: dict[str, Any]) -> None:
+    """Handles AI prompts."""
     params = data.get("params", {})
     envelope = params.get("envelope", {})
 
@@ -98,87 +170,80 @@ async def process_message(proc: Process, data: dict[str, Any]) -> None:
     if not message_body and not attachments:
         return
 
-    chat_id: str = group_id if group_id else source
-    update_chat_history(chat_id, source, message_body, attachments)
-
-    # 3. Check Prefixes (!pothead or !pot or !ph)
+    # 3. Check Prefixes
     clean_msg: str = message_body.strip() if message_body else ""
     prompt: str | None = None
-    command: str | None = None
-    command_params: list[str] = []
 
     settings.trigger_words.sort(key=len, reverse=True)
     for tw in settings.trigger_words:
         if clean_msg.startswith(tw):
             content: str = clean_msg[len(tw):].strip()
             if content.startswith("#"):
-                # Parse command
-                # Syntax: !TRIGGERWORD#COMMAND,PARAM1,PARAM2,... PROMPT
-                cmd_content: str = content[1:]
-                cmd_part: str
-                prompt_part: str
-                if " " in cmd_content:
-                    cmd_part, prompt_part = cmd_content.split(" ", 1)
-                    prompt = prompt_part.strip()
-                else:
-                    cmd_part: str = cmd_content
-                    prompt = None
-
-                parts: list[str] = cmd_part.split(',')
-                command = parts[0].strip()
-                if len(parts) > 1:
-                    command_params = [p.strip() for p in parts[1:]]
+                # This is a command, handled by handle_command
+                return
             else:
                 prompt = content
             break
 
-    # nothing to do for AI
-    if prompt is None and command is None:
+    if prompt is None and not attachments:
         return
 
+    chat_id: str = group_id if group_id else source
+    update_chat_history(chat_id, source, message_body, attachments)
+
     if quote is not None:
-        prompt = f"{prompt}\n\n{quote}"
+        prompt = f"{prompt}\n\n{quote}" if prompt else quote
 
-    # 4. Process
-    if command is not None:
-        logger.info(
-            f"Processing command from {source} (Group: {group_id}): {command} {command_params}")
-        response_text: str | None = None
-        response_attachments: list[str] = []
-        response_text, response_attachments = await execute_command(chat_id, source, command, command_params, prompt)
-        await send_signal_message(proc, source, response_text, group_id, response_attachments)
-        logger.info(f"Sent response to {source}")
+    logger.info(
+        f"Processing request from {source} (Group: {group_id}): {prompt}")
 
-    elif prompt is not None:
-        logger.info(
-            f"Processing request from {source} (Group: {group_id}): {prompt}")
+    if not prompt:
+        response_text = "🤖 Beep Boop. Please provide a prompt."
+    else:
+        response_text: str | None = await AI_PROVIDER.get_response(chat_id, prompt)
 
-        if not prompt:
-            response_text = "🤖 Beep Boop. Please provide a prompt."
-        else:
-            response_text: str | None = await AI_PROVIDER.get_response(chat_id, prompt)
+    # 5. Send Response
+    if response_text is None:
+        response_text = "🤖 Beep Boop. Something went wrong."
 
-        # 5. Send Response
-        # If group_id exists, we reply to the group. If not, we reply to the source.
-        if response_text is None:
-            response_text = "🤖 Beep Boop. Something went wrong."
+    update_chat_history(chat_id, "Assistant", response_text)
 
-        update_chat_history(chat_id, "Assistant", response_text)
-
-        await send_signal_message(proc, source, response_text, group_id)
-        logger.info(f"Sent response to {source}")
+    await send_signal_message(proc, source, response_text, group_id)
+    logger.info(f"Sent response to {source}")
 
 
 ACTIONS: list[Action] = [
     Action(
+        name="Handle Command in Data Message",
+        jsonpath="$.params.envelope[?(@.message =~ '^!ph#')]",
+        handler=handle_command,
+        priority=Priority.LOW,
+        halt=True
+    ),
+    Action(
+        name="Handle Command in Sync Message",
+        jsonpath="$.params.envelope.syncMessage[?(@.message =~ '^!ph#')]",
+        handler=handle_command,
+        priority=Priority.LOW,
+        halt=True
+    ),
+    Action(
         name="Handle Data Message",
-        jsonpath="$.params.envelope.dataMessage",
-        handler=process_message
+        jsonpath="$.params.envelope[?(@.message =~ '^!ph')]",
+        handler=send_to_gemini,
+        priority=Priority.LOW,
+        halt=True
     ),
     Action(
         name="Handle Sync Message",
-        jsonpath="$.params.envelope.syncMessage",
-        handler=process_message
+        # Correct Path:
+        # 1. We stop at .syncMessage
+        # 2. We apply [?] to it, which iterates over its value (the sentMessage object)
+        # 3. We check @.message (the message field inside sentMessage)
+        jsonpath="$.params.envelope.syncMessage[?(@.message =~ '^!ph')]",
+        handler=send_to_gemini,
+        priority=Priority.LOW,
+        halt=True
     )
 ]
 
@@ -190,7 +255,7 @@ async def process_incoming_line(proc: Process, line: str) -> None:
     except json.JSONDecodeError:
         return
 
-    request_id = data.get("id")
+    request_id: str | None = data.get("id")
     if request_id and request_id in PENDING_REPLIES:
         callback: Callable[[dict[str, Any]], Awaitable[None]
                            ] = PENDING_REPLIES.pop(request_id)
@@ -200,12 +265,16 @@ async def process_incoming_line(proc: Process, line: str) -> None:
     for action in ACTIONS:
         if action.matches(data):
             await action.handler(proc, data)
+            if action.halt:
+                return
 
 
 async def main() -> None:
     # Load plugins before starting the main loop
     load_plugins()
     ACTIONS.extend(PLUGIN_ACTIONS)
+    # Sort actions by priority (SYS -> LOW)
+    ACTIONS.sort(key=lambda a: a.priority.value, reverse=True)
     # Start signal-cli in jsonRpc mode
     # -a specifies the account sending/receiving
     cmd: list[str] = [settings.signal_cli_path, "-a",
