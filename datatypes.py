@@ -53,6 +53,23 @@ class Priority(Enum):
 
 @dataclass
 class Action:
+    """
+    Represents an action to be taken when an incoming message matches specific criteria.
+
+    Attributes:
+        name: A descriptive name for the action.
+        jsonpath: A JSONPath expression string used to locate specific data within the incoming JSON message.
+                  Uses `jsonpath_ng.ext` for extended features.
+        handler: An asynchronous callable that is executed if the action matches.
+                 It receives the `Process` object and the data dictionary as arguments.
+        priority: The execution priority of the action. Actions are sorted by priority before execution.
+                  Default is `Priority.NORMAL`.
+        halt: If True, stops the processing of subsequent actions in the loop if this action matches.
+              Default is False.
+        filter: An optional callable that receives the value found by the JSONPath expression.
+                It must return `True` for the action to be considered a match.
+                If None, existence of the JSONPath match is sufficient.
+    """
     name: str
     jsonpath: str
     handler: Callable[[Any, dict[str, Any]], Awaitable[None]]
