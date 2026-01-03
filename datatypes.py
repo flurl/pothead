@@ -72,7 +72,7 @@ class Action:
     """
     name: str
     jsonpath: str
-    handler: Callable[[Any, dict[str, Any]], Awaitable[None]]
+    handler: Callable[[dict[str, Any]], Awaitable[None]]
     priority: Priority = Priority.NORMAL
     halt: bool = False
     filter: Callable[[Any], bool] | None = None

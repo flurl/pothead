@@ -1,6 +1,5 @@
 import logging
 from typing import Any
-from asyncio.subprocess import Process
 
 from messaging import send_signal_message
 from plugin_manager import register_action
@@ -13,7 +12,7 @@ async def log_echo_response(response_data: dict[str, Any]) -> None:
     logger.info(f"Received confirmation for echo: {response_data}")
 
 
-async def echo_handler(proc: Process, data: dict[str, Any]) -> None:
+async def echo_handler(data: dict[str, Any]) -> None:
     """
     Handles echoing a message back to the sender from either a dataMessage or a syncMessage.
     """
@@ -36,7 +35,6 @@ async def echo_handler(proc: Process, data: dict[str, Any]) -> None:
     if source and message_body and not message_body.startswith("!"):
         logger.info(f"Echoing message from {source} in group {group_id}")
         await send_signal_message(
-            proc,
             source,
             f"Echo: {message_body}",
             group_id,

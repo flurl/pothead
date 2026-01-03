@@ -14,7 +14,7 @@ from state import CHAT_HISTORY
 from ai import AI_PROVIDER
 from commands import COMMANDS
 from datatypes import Attachment, ChatMessage, Action, Priority
-from messaging import send_signal_message
+from messaging import send_signal_message, set_signal_process
 from utils import check_permission
 
 
@@ -53,7 +53,7 @@ def update_chat_history(chat_id: str, sender: str, message: str | None, attachme
         logger.debug(line)
 
 
-async def handle_command(proc: Process, data: dict[str, Any]) -> None:
+async def handle_command(data: dict[str, Any]) -> None:
     """Handles incoming commands."""
     params = data.get("params", {})
     envelope = params.get("envelope", {})
@@ -120,12 +120,12 @@ async def handle_command(proc: Process, data: dict[str, Any]) -> None:
                 logger.info(
                     f"Processing command from {source} (Group: {group_id}): {command} {command_params}")
                 response_text, response_attachments = await execute_command(chat_id, source, command, command_params, prompt)
-                await send_signal_message(proc, source, response_text, group_id, response_attachments)
+                await send_signal_message(source, response_text, group_id, response_attachments)
                 logger.info(f"Sent response to {source}")
                 return
 
 
-async def send_to_gemini(proc: Process, data: dict[str, Any]) -> None:
+async def send_to_gemini(data: dict[str, Any]) -> None:
     """Handles AI prompts."""
     params = data.get("params", {})
     envelope = params.get("envelope", {})
@@ -207,7 +207,7 @@ async def send_to_gemini(proc: Process, data: dict[str, Any]) -> None:
 
     update_chat_history(chat_id, "Assistant", response_text)
 
-    await send_signal_message(proc, source, response_text, group_id)
+    await send_signal_message(source, response_text, group_id)
     logger.info(f"Sent response to {source}")
 
 
@@ -252,7 +252,7 @@ ACTIONS: list[Action] = [
 ]
 
 
-async def process_incoming_line(proc: Process, line: str) -> None:
+async def process_incoming_line(line: str) -> None:
     """Parses a line of JSON from signal-cli."""
     try:
         data: Any = json.loads(line)
@@ -268,7 +268,7 @@ async def process_incoming_line(proc: Process, line: str) -> None:
 
     for action in ACTIONS:
         if action.matches(data):
-            await action.handler(proc, data)
+            await action.handler(data)
             if action.halt:
                 return
 
@@ -293,6 +293,8 @@ async def main() -> None:
         stderr=sys.stderr  # Print errors to console directly
     )
 
+    set_signal_process(proc)
+
     logger.info("Listening for messages...")
 
     try:
@@ -307,7 +309,7 @@ async def main() -> None:
             decoded_line: str = line.decode('utf-8').strip()
             if decoded_line:
                 # Process each line asynchronously so we don't block reading
-                asyncio.create_task(process_incoming_line(proc, decoded_line))
+                asyncio.create_task(process_incoming_line(decoded_line))
 
     except asyncio.CancelledError:
         pass

@@ -20,7 +20,7 @@ LOADED_PLUGINS: dict[str, dict[str, Any]] = {}
 PLUGIN_ACTIONS: list[Action] = []
 
 
-def register_action(name: str, jsonpath: str, handler: Callable[[Any, dict[str, Any]], Awaitable[None]]) -> None:
+def register_action(name: str, jsonpath: str, handler: Callable[[dict[str, Any]], Awaitable[None]]) -> None:
     """Decorator to register a plugin action."""
     logger.info(f"Registering plugin action: {name}")
     action = Action(name=name, jsonpath=jsonpath, handler=handler)
