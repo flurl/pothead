@@ -55,9 +55,12 @@ def update_chat_history(chat_id: str, sender: str, message: str | None, attachme
 
 async def handle_command(data: dict[str, Any]) -> None:
     """Handles incoming commands."""
-    params = data.get("params", {})
-    envelope = params.get("envelope", {})
-    source = envelope.get("source")
+    params: dict[str, Any] = data.get("params", {})
+    envelope: dict[str, Any] = params.get("envelope", {})
+    source: str | None = envelope.get("source")
+    if source is None:
+        logger.error("No source found in envelope.")
+        return
 
     message_body: str | None = None
     group_id: str | None = None
@@ -103,22 +106,26 @@ async def handle_command(data: dict[str, Any]) -> None:
 
                 cmd_content: str = content[1:]
                 if " " in cmd_content:
+                    cmd_part: str
+                    prompt_part: str
                     cmd_part, prompt_part = cmd_content.split(" ", 1)
-                    prompt = prompt_part.strip()
+                    prompt: str | None = prompt_part.strip()
                 else:
-                    cmd_part = cmd_content
+                    cmd_part: str = cmd_content
                     prompt = None
 
                 parts: list[str] = cmd_part.split(',')
-                command = parts[0].strip()
-                command_params = [p.strip()
-                                  for p in parts[1:]] if len(parts) > 1 else []
+                command: str = parts[0].strip()
+                command_params: list[str] = [p.strip()
+                                             for p in parts[1:]] if len(parts) > 1 else []
 
                 if quote is not None:
                     prompt = f"{prompt}\n\n{quote}" if prompt else quote
 
                 logger.info(
                     f"Processing command from {source} (Group: {group_id}): {command} {command_params}")
+                response_text: str | None = None
+                response_attachments: list[str] = []
                 response_text, response_attachments = await execute_command(chat_id, source, command, command_params, prompt)
                 await send_signal_message(source, response_text, group_id, response_attachments)
                 logger.info(f"Sent response to {source}")
@@ -127,11 +134,14 @@ async def handle_command(data: dict[str, Any]) -> None:
 
 async def send_to_gemini(data: dict[str, Any]) -> None:
     """Handles AI prompts."""
-    params = data.get("params", {})
-    envelope = params.get("envelope", {})
+    params: dict[str, Any] = data.get("params", {})
+    envelope: dict[str, Any] = params.get("envelope", {})
 
     # 1. Extract source
-    source: str = envelope.get("source")
+    source: str | None = envelope.get("source")
+    if source is None:
+        logger.error("No source found in envelope.")
+        return
 
     # 2. Extract Message Body and Context (Group vs Direct)
     # We need to look in two places: dataMessage (incoming) and syncMessage (sent from other devices)
