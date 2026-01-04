@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from types import ModuleType
 from typing import Any
 
-from datatypes import Action
+from datatypes import Action, Priority, Command
 from config import settings
 
 
@@ -18,13 +18,36 @@ PENDING_REPLIES: dict[str, Callable[[dict[str, Any]], Awaitable[None]]] = {}
 LOADED_PLUGINS: dict[str, dict[str, Any]] = {}
 
 PLUGIN_ACTIONS: list[Action] = []
+PLUGIN_COMMANDS: list[Command] = []
 
 
-def register_action(name: str, jsonpath: str, handler: Callable[[dict[str, Any]], Awaitable[None]]) -> None:
+def register_action(
+    plugin_id: str,
+    name: str,
+    jsonpath: str,
+    handler: Callable[[dict[str, Any]], Awaitable[None]],
+    priority: Priority = Priority.NORMAL,
+    filter: Callable[[Any], bool] | None = None,
+    halt: bool = False,
+) -> None:
     """Decorator to register a plugin action."""
-    logger.info(f"Registering plugin action: {name}")
-    action = Action(name=name, jsonpath=jsonpath, handler=handler)
+    logger.info(f"Registering plugin action '{name}' from '{plugin_id}'")
+    action = Action(name=name, jsonpath=jsonpath, handler=handler,
+                    priority=priority, filter=filter, halt=halt, origin=f"plugin:{plugin_id}")
     PLUGIN_ACTIONS.append(action)
+
+
+def register_command(
+    plugin_id: str,
+    name: str,
+    handler: Callable[[str, list[str], str | None], Awaitable[tuple[str, list[str]]]],
+    help_text: str,
+) -> None:
+    """Decorator to register a plugin command."""
+    logger.info(f"Registering plugin command '{name}' from '{plugin_id}'")
+    command = Command(name=name, handler=handler,
+                      help_text=help_text, origin=f"plugin:{plugin_id}")
+    PLUGIN_COMMANDS.append(command)
 
 
 def load_plugins() -> None:

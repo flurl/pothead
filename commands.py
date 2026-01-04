@@ -2,28 +2,18 @@ import logging
 import os
 import shutil
 from collections import deque
-from dataclasses import dataclass
-from typing import Awaitable, Callable, cast
+from typing import cast
 
-from google.genai import types
-from google.genai.pagers import Pager
+# from google.genai import types
 
-from ai import AI_PROVIDER
+
 from config import settings
-from datatypes import Attachment, ChatMessage, Permissions
-from state import CHAT_CONTEXT, CHAT_HISTORY, CHAT_STORES
-from utils import get_local_files, get_safe_chat_dir, load_permissions, save_permissions, get_chat_store
+from datatypes import Attachment, ChatMessage, Permissions, Command
+from state import CHAT_HISTORY
+from utils import get_local_files, get_safe_chat_dir, load_permissions, save_permissions
+
 
 logger: logging.Logger = logging.getLogger(__name__)
-
-
-@dataclass
-class Command:
-    name: str
-    handler: Callable[[str, list[str], str | None],
-                      Awaitable[tuple[str, list[str]]]]
-    help_text: str
-
 
 
 async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
@@ -79,6 +69,7 @@ async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> tuple
     saved_att_count = 0
     for att in attachments_to_save:
         src: str = os.path.join(settings.signal_attachments_path, att.id)
+        src = os.path.expanduser(src)
         if os.path.exists(src):
             # Determine destination filename
             dest_name: str = att.id
@@ -103,31 +94,13 @@ async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> tuple
         else:
             logger.warning(f"Attachment file not found: {src}")
 
-    # Update Gemini Store
-    # Invalidate cache and delete old store to force re-upload
-    if chat_id in CHAT_STORES:
-        store: types.FileSearchStore = CHAT_STORES[chat_id]
-        if store.name is None:
-            logger.error(f"Store name is None.")
-            return f"❌ Store name is None.", []
-        try:
-            AI_PROVIDER.client.file_search_stores.delete(name=store.name)
-        except Exception as e:
-            logger.error(f"Failed to delete old store: {e}")
-        del CHAT_STORES[chat_id]
-
-    # Trigger recreation/upload
-    get_chat_store(chat_id, CHAT_STORES, AI_PROVIDER.client)
-
     return f"💾 Saved {len(lines_to_save)} text items and {saved_att_count} attachments to store.", []
 
 
 async def cmd_ls_store(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     """Lists files in local storage and remote Gemini store."""
     response_lines: list[str] = [f"📂 File Store for chat '{chat_id}':"]
-
-    # 1. Local Files
-    local_files = get_local_files(chat_id)
+    local_files: list[str] = get_local_files(chat_id)
 
     response_lines.append(f"\n🏠 Local ({len(local_files)}):")
     if local_files:
@@ -137,40 +110,6 @@ async def cmd_ls_store(chat_id: str, params: list[str], prompt: str | None) -> t
             idx += 1
     else:
         response_lines.append("  (empty)")
-
-    # 2. Remote Files
-    response_lines.append("\n☁️ Remote (Gemini):")
-
-    store: types.FileSearchStore | None = CHAT_STORES.get(chat_id)
-
-    if not store:
-        response_lines.append(
-            "  (No active store in memory - send a message to initialize)")
-    elif not store.name:
-        response_lines.append("  (Store has no name)")
-    else:
-        try:
-            remote_files: list[str] = []
-            pager: Pager[types.Document] = AI_PROVIDER.client.file_search_stores.documents.list(
-                parent=store.name)
-            for f in pager:
-                name: str | None = getattr(f, "display_name", None)
-                if name is None:
-                    name = getattr(f, "uri", getattr(f, "name", "Unknown"))
-                name = cast(str, name)
-                remote_files.append(name)
-
-            remote_files.sort()
-
-            response_lines.append(f"  (Store ID: {store.name.split('/')[-1]})")
-            if remote_files:
-                for f in remote_files:
-                    response_lines.append(f"  - {f}")
-            else:
-                response_lines.append("  (empty)")
-
-        except Exception as e:
-            response_lines.append(f"  ❌ Error listing remote files: {e}")
 
     return "\n".join(response_lines), []
 
@@ -191,61 +130,6 @@ async def cmd_getfile(chat_id: str, params: list[str], prompt: str | None) -> tu
         return f"Here is {filename}", [filepath]
 
     return f"⚠️ File index {idx} not found.", []
-
-
-async def cmd_add_ctx(chat_id: str, params: list[str], prompt: str | None = None) -> tuple[str, list[str]]:
-    """Saves prompt and history entries as context for the next Gemini call."""
-    if chat_id not in CHAT_CONTEXT:
-        CHAT_CONTEXT[chat_id] = []
-
-    saved_count = 0
-
-    # Process parameters (history indices)
-    if chat_id in CHAT_HISTORY:
-        history: deque[ChatMessage] = CHAT_HISTORY[chat_id]
-        for p in params:
-            try:
-                idx = int(p)
-                if 1 <= idx <= 10 and idx <= len(history):
-                    # 1-based index from end: 1 -> -1 (most recent)
-                    # skip the last history entry which is the command itself
-                    # therefore the -1
-                    CHAT_CONTEXT[chat_id].append(str(history[-idx-1]))
-                    saved_count += 1
-            except ValueError:
-                pass
-
-    if prompt:
-        CHAT_CONTEXT[chat_id].append(prompt)
-        saved_count += 1
-
-    return f"💾 Context saved ({saved_count} items). Will be used in next call.", []
-
-
-async def cmd_ls_ctx(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
-    """Lists the currently saved context for the chat."""
-    if chat_id not in CHAT_CONTEXT or not CHAT_CONTEXT[chat_id]:
-        return "ℹ️ No context is currently saved for this chat.", []
-
-    context_items: list[str] = CHAT_CONTEXT[chat_id]
-    response_lines: list[str] = ["📝 Current Context:"]
-    for i, item in enumerate(context_items, 1):
-        # Get first 5 words and add "..." if longer
-        words: list[str] = item.split()
-        snippet: str = " ".join(words[:5])
-        if len(words) > 5:
-            snippet += "..."
-        response_lines.append(f"{i}. {snippet}")
-
-    return "\n".join(response_lines), []
-
-
-async def cmd_rm_ctx(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
-    """Deletes all context for the current chat."""
-    if chat_id in CHAT_CONTEXT:
-        del CHAT_CONTEXT[chat_id]
-        return "🗑️ Context cleared.", []
-    return "ℹ️ No context to clear.", []
 
 
 async def cmd_grant(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
@@ -469,36 +353,45 @@ async def cmd_lsdirs(chat_id: str, params: list[str], prompt: str | None) -> tup
 async def cmd_help(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     """Lists all available commands and their help text."""
     response_lines: list[str] = ["🛠️ Available Commands:"]
+    by_origin: dict[str, list[Command]] = {}
     for cmd in COMMANDS:
-        response_lines.append(f"• {cmd.name}: {cmd.help_text}")
+        if cmd.origin not in by_origin:
+            by_origin[cmd.origin] = []
+        by_origin[cmd.origin].append(cmd)
+
+    for origin, cmds in sorted(by_origin.items()):
+        response_lines.append(f"\n{origin.upper()}:")
+        for cmd in cmds:
+            response_lines.append(f"  • {cmd.name}: {cmd.help_text}")
     return "\n".join(response_lines), []
 
 
 COMMANDS: list[Command] = [
-    Command("help", cmd_help, "Lists all available commands."),
-    Command("addctx", cmd_add_ctx,
-            "Adds the current prompt or history entries (by index) to the context for the next AI response."),
-    Command("lsctx", cmd_ls_ctx, "Lists the currently active context items."),
-    Command("rmctx", cmd_rm_ctx, "Clears the current context."),
+    Command("help", cmd_help, "Lists all available commands.", "sys"),
     Command("save", cmd_save,
-            "Saves the current prompt, history entries (by index), and attachments to the store."),
+            "Saves the current prompt, history entries (by index), and attachments to the store.\n    Params: [<index1>,<index2>,...]", "sys"),
     Command("lsstore", cmd_ls_store,
-            "Lists files in the local and remote file store."),
+            "Lists files in the local and remote file store.", "sys"),
     Command("getfile", cmd_getfile,
-            "Retrieves a file from the local store by its index."),
-    Command("grant", cmd_grant, "Grants a command permission to a user."),
-    Command("mkgroup", cmd_mkgroup, "Creates a new user group."),
-    Command("addmember", cmd_addmember, "Adds a user to a group."),
+            "Retrieves a file from the local store by its index.\n    Params: <file_index>", "sys"),
+    Command("grant", cmd_grant,
+            "Grants a command permission to a user.\n    Params: <command>,<user_id>", "sys"),
+    Command("mkgroup", cmd_mkgroup,
+            "Creates a new user group.\n    Params: <group_name>", "sys"),
+    Command("addmember", cmd_addmember,
+            "Adds a user to a group.\n    Params: <group_name>,<user_id>", "sys"),
     Command("grantgroup", cmd_grantgroup,
-            "Grants a command permission to a group."),
+            "Grants a command permission to a group.\n    Params: <command>,<group_name>", "sys"),
     Command("revoke", cmd_revoke,
-            "Revokes a command permission from a user."),
-    Command("rmmember", cmd_rmmember, "Removes a user from a group."),
+            "Revokes a command permission from a user.\n    Params: <command>,<user_id>", "sys"),
+    Command("rmmember", cmd_rmmember,
+            "Removes a user from a group.\n    Params: <group_name>,<user_id>", "sys"),
     Command("revokegroup", cmd_revokegroup,
-            "Revokes a command permission from a group."),
-    Command("rmgroup", cmd_rmgroup, "Deletes a user group."),
+            "Revokes a command permission from a group.\n    Params: <command>,<group_name>", "sys"),
+    Command("rmgroup", cmd_rmgroup,
+            "Deletes a user group.\n    Params: <group_name>", "sys"),
     Command("lsperms", cmd_lsperms,
-            "Lists all active permissions for the current chat."),
+            "Lists all active permissions for the current chat.", "sys"),
     Command("lsdirs", cmd_lsdirs,
-            "Lists the safe filesystem paths for the current chat."),
+            "Lists the safe filesystem paths for the current chat.", "sys"),
 ]

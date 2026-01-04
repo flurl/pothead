@@ -3,14 +3,13 @@ import hashlib
 import json
 import logging
 import os
-import time
 from typing import Any
 
 from config import settings
-from google.genai import types
-from google.genai.client import Client
 
-from datatypes import Permissions
+from collections import deque
+from datatypes import Attachment, ChatMessage, Permissions
+from state import CHAT_HISTORY
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -20,8 +19,12 @@ def get_safe_chat_dir(base_path: str, chat_id: str) -> str:
     return os.path.join(base_path, hashed_id)
 
 
+def get_local_file_store_path(chat_id: str) -> str:
+    return get_safe_chat_dir(settings.file_store_path, chat_id)
+
+
 def get_local_files(chat_id: str) -> list[str]:
-    chat_dir: str = get_safe_chat_dir(settings.file_store_path, chat_id)
+    chat_dir: str = get_local_file_store_path(chat_id)
     if os.path.isdir(chat_dir):
         return sorted([f for f in os.listdir(chat_dir) if os.path.isfile(os.path.join(chat_dir, f))])
     return []
@@ -80,43 +83,14 @@ def check_permission(chat_id: str, sender: str, command: str) -> bool:
     return False
 
 
-def get_chat_store(chat_id: str, chat_stores: dict[str, types.FileSearchStore], client: Client) -> types.FileSearchStore | None:
-    if chat_id in chat_stores:
-        return chat_stores[chat_id]
-
-    chat_dir: str = get_safe_chat_dir(settings.file_store_path, chat_id)
-    if not os.path.isdir(chat_dir):
-        logger.info(f"No file store found for chat {chat_id}.")
-        return None
-
-    files: list[str] = [f for f in os.listdir(
-        chat_dir) if os.path.isfile(os.path.join(chat_dir, f))]
-    if not files:
-        return None
-
-    logger.info(f"Creating file store for chat {chat_id}...")
-    try:
-        new_store: types.FileSearchStore = client.file_search_stores.create(
-            config={"display_name": chat_id})
-
-        if not new_store or not new_store.name:
-            return None
-
-        for filename in files:
-            full_path: str = os.path.join(chat_dir, filename)
-            logger.info(f"Uploading {full_path}...")
-            upload_op = client.file_search_stores.upload_to_file_search_store(
-                file_search_store_name=new_store.name,
-                file=full_path
-            )
-            while not upload_op.done:
-                logger.info(f"Waiting for {filename}...")
-                time.sleep(2)
-                upload_op: types.UploadToFileSearchStoreOperation = client.operations.get(
-                    upload_op)
-
-        chat_stores[chat_id] = new_store
-        return new_store
-    except Exception as e:
-        logger.error(f"Failed to create store for {chat_id}: {e}")
-        return None
+def update_chat_history(chat_id: str, sender: str, message: str | None, attachments: list[Attachment] | None = None) -> None:
+    if attachments is None:
+        attachments = []
+    if chat_id not in CHAT_HISTORY:
+        CHAT_HISTORY[chat_id] = deque[ChatMessage](
+            maxlen=settings.history_max_length)
+    CHAT_HISTORY[chat_id].append(ChatMessage(
+        sender=sender, text=message, attachments=attachments))
+    logger.debug(f"Chat history for {chat_id}: {CHAT_HISTORY[chat_id]}")
+    for line in CHAT_HISTORY[chat_id]:
+        logger.debug(line)

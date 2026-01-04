@@ -4,7 +4,7 @@ from typing import Any
 from messaging import send_signal_message
 from plugin_manager import register_action
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 async def log_echo_response(response_data: dict[str, Any]) -> None:
@@ -43,11 +43,13 @@ async def echo_handler(data: dict[str, Any]) -> None:
 
 # Register actions for both data messages and sync messages
 register_action(
+    "echo",
     name="Echo Data Message",
     jsonpath="$.params.envelope.dataMessage",
     handler=echo_handler
 )
 register_action(
+    "echo",
     name="Echo Sync Message",
     jsonpath="$.params.envelope.syncMessage.sentMessage",
     handler=echo_handler

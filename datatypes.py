@@ -72,6 +72,7 @@ class Action:
     """
     name: str
     jsonpath: str
+    origin: str
     handler: Callable[[dict[str, Any]], Awaitable[None]]
     priority: Priority = Priority.NORMAL
     halt: bool = False
@@ -88,3 +89,12 @@ class Action:
         if self.filter:
             return any(self.filter(match.value) for match in matches)
         return True
+
+
+@dataclass
+class Command:
+    name: str
+    handler: Callable[[str, list[str], str | None],
+                      Awaitable[tuple[str, list[str]]]]
+    help_text: str
+    origin: str

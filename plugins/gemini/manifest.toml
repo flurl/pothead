@@ -1,0 +1,5 @@
+id = "gemini"
+name = "Gemini AI Plugin"
+description = "A plugin for interacting with the Gemini AI."
+version = "0.1.0"
+author = "Pothead-Dev"
