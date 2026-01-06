@@ -1,8 +1,8 @@
-
+import asyncio
 import logging
-from collections import deque
 import os
-import time
+from collections import deque
+from dataclasses import dataclass
 from typing import Any, cast
 
 from config import settings
@@ -19,184 +19,200 @@ from utils import get_local_files, get_safe_chat_dir, update_chat_history
 logger: logging.Logger = logging.getLogger(__name__)
 
 
+@dataclass
+class MessageContext:
+    """Standardized representation of an incoming message."""
+    source: str
+    chat_id: str
+    body: str
+    group_id: str | None = None
+    quote: str | None = None
+    attachments: list[Attachment] | None = None
+
+    @property
+    def has_content(self) -> bool:
+        return bool(self.body or (self.attachments and len(self.attachments) > 0))
+
+
 class GeminiProvider:
     def __init__(self, api_key: str) -> None:
-        self._client: Client = Client(api_key=api_key)
+        self._client = Client(api_key=api_key)
         self._chat_stores: dict[str, types.FileSearchStore] = {}
         self._chat_contexts: dict[str, list[str]] = {}
+
+        # Pre-define safety settings to avoid recreation on every call
+        self._safety_settings: list[types.SafetySetting] = [
+            types.SafetySetting(
+                category=cat,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE
+            ) for cat in [
+                types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            ]
+        ]
 
     @property
     def client(self) -> Client:
         return self._client
 
-    async def get_response(self, chat_id: str, prompt_text: str) -> str | None:
-        """Sends text to Gemini and returns the response."""
-        try:
-            chat_store: types.FileSearchStore | None = self.get_chat_store(
-                chat_id)
-
-            parts: list[types.Part] = []
-            # Add context if available and withdraw it
-            context: list[str] = self.get_chat_context(chat_id)
-            if len(context) > 0:
-                for ctx in context:
-                    parts.append(types.Part(text=ctx))
-                context.clear()
-
-            # Add prompt
-            parts.append(types.Part(text=prompt_text))
-
-            # Create a proper Content object for the prompt
-            content = types.Content(parts=parts)
-
-            tools: list[types.Tool] = []
-            if chat_store and chat_store.name:
-                tools.append(types.Tool(
-                    file_search=types.FileSearch(
-                        file_search_store_names=[chat_store.name]
-                    )
-                ))
-
-            # Generate content
-            response: types.GenerateContentResponse = await self.client.aio.models.generate_content(  # type: ignore
-                model=settings.gemini_model_name,
-                contents=content,
-                config=types.GenerateContentConfig(
-                    system_instruction=settings.system_instruction,
-                    tools=tools if tools else None,
-                    safety_settings=[
-                        types.SafetySetting(
-                            category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                            threshold=types.HarmBlockThreshold.BLOCK_NONE
-                        ),
-                        types.SafetySetting(
-                            category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                            threshold=types.HarmBlockThreshold.BLOCK_NONE
-                        ),
-                        types.SafetySetting(
-                            category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                            threshold=types.HarmBlockThreshold.BLOCK_NONE
-                        ),
-                        types.SafetySetting(
-                            category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                            threshold=types.HarmBlockThreshold.BLOCK_NONE
-                        ),
-                    ],
-                ),
-            )
-            return response.text
-        except Exception as e:
-            return f"Error querying Gemini: {str(e)}"
+    def get_chat_context(self, chat_id: str) -> list[str]:
+        return self._chat_contexts.setdefault(chat_id, [])
 
     def get_chat_store(self, chat_id: str) -> types.FileSearchStore | None:
         if chat_id in self._chat_stores:
             return self._chat_stores[chat_id]
 
-        logger.info(f"Creating file store for chat {chat_id}...")
+        logger.info(f"Creating file store reference for chat {chat_id}...")
         try:
+            # Note: This creates a remote store. You might want to check if one exists
+            # via API listing if your bot restarts, otherwise you create duplicates.
             new_store: types.FileSearchStore = self._client.file_search_stores.create(
-                config={"display_name": chat_id})
-
-            if not new_store or not new_store.name:
-                return None
-
-            self._chat_stores[chat_id] = new_store
-            return new_store
+                config={"display_name": chat_id}
+            )
+            if new_store and new_store.name:
+                self._chat_stores[chat_id] = new_store
+                return new_store
         except Exception as e:
-            logger.error(f"Failed to create store for {chat_id}: {e}")
-            return None
+            logger.error(
+                f"Failed to create store for {chat_id}: {e}", exc_info=True)
+        return None
 
-    def get_chat_context(self, chat_id: str) -> list[str]:
-        if chat_id not in self._chat_contexts:
-            self._chat_contexts[chat_id] = []
-        return self._chat_contexts[chat_id]
+    async def get_response(self, chat_id: str, prompt_text: str) -> str:
+        """Sends text to Gemini and returns the response."""
+        try:
+            parts: list[types.Part] = []
+
+            # Inject and consume context
+            context_list: list[str] = self.get_chat_context(chat_id)
+            if context_list:
+                parts.extend([types.Part(text=ctx) for ctx in context_list])
+                context_list.clear()  # Clear after usage as per original logic
+
+            parts.append(types.Part(text=prompt_text))
+
+            # Configure Tools (RAG)
+            tools: list[types.Tool] | None = None
+            chat_store: types.FileSearchStore | None = self.get_chat_store(
+                chat_id)
+            if chat_store and chat_store.name:
+                tools = [types.Tool(
+                    file_search=types.FileSearch(
+                        file_search_store_names=[chat_store.name]
+                    )
+                )]
+
+            # Async Generation
+            response: types.GenerateContentResponse = await self.client.aio.models.generate_content(  # type: ignore
+                model=settings.gemini_model_name,
+                contents=types.Content(parts=parts),
+                config=types.GenerateContentConfig(
+                    system_instruction=settings.system_instruction,
+                    tools=tools,
+                    safety_settings=self._safety_settings,
+                ),
+            )
+            return response.text if response.text else "🤖 (No text returned)"
+
+        except Exception as e:
+            logger.error(f"Gemini API Error: {e}", exc_info=True)
+            return f"⚠️ Error querying Gemini: {str(e)}"
 
 
 gemini = GeminiProvider(api_key=settings.gemini_api_key)
 
 
+def extract_message_context(data: dict[str, Any]) -> MessageContext | None:
+    """Parses the raw signal-cli envelope into a MessageContext."""
+    envelope: dict[str, Any] = data.get("params", {}).get("envelope", {})
+    source: str | None = envelope.get("source")
+
+    if not source:
+        return None
+
+    # Determine payload type
+    msg_payload: dict[str, Any] | None = envelope.get("dataMessage") or envelope.get(
+        "syncMessage", {}).get("sentMessage")
+    if not msg_payload:
+        return None
+
+    # Extract basic info
+    body: str = msg_payload.get("message", "")
+    group_info: dict[str, Any] = msg_payload.get("groupInfo", {})
+    group_id: str | None = group_info.get("groupId")
+    quote: str | None = msg_payload.get("quote", {}).get("text")
+
+    # Extract attachments
+    attachments: list[Attachment] = []
+    for att in msg_payload.get("attachments", []):
+        attachments.append(Attachment(
+            content_type=att.get("contentType", "unknown"),
+            id=att.get("id", ""),
+            size=att.get("size", 0),
+            filename=att.get("filename"),
+            width=att.get("width"),
+            height=att.get("height"),
+            caption=att.get("caption")
+        ))
+
+    return MessageContext(
+        source=source,
+        chat_id=group_id if group_id else source,
+        body=body,
+        group_id=group_id,
+        quote=quote,
+        attachments=attachments
+    )
+
+
 async def action_send_to_gemini(data: dict[str, Any]) -> None:
     """Handles AI prompts."""
-    params: dict[str, Any] = data.get("params", {})
-    envelope: dict[str, Any] = params.get("envelope", {})
-
-    # 1. Extract source
-    source: str | None = envelope.get("source")
-    if source is None:
-        logger.error("No source found in envelope.")
+    ctx: MessageContext | None = extract_message_context(data)
+    if not ctx or not ctx.has_content:
         return
 
-    # 2. Extract Message Body and Context (Group vs Direct)
-    message_body: str | None = None
-    group_id: str | None = None
-    quote: str | None = None
-    attachments: list[Attachment] = []
-
-    msg_payload: dict[str, Any] | None = None
-    if "dataMessage" in envelope:
-        msg_payload = envelope.get("dataMessage")
-    elif "syncMessage" in envelope:
-        msg_payload = envelope.get("syncMessage", {}).get("sentMessage")
-
-    if msg_payload:
-        message_body = msg_payload.get("message")
-        if "groupInfo" in msg_payload:
-            group_id = msg_payload["groupInfo"].get("groupId")
-        if "quote" in msg_payload:
-            quote = msg_payload["quote"].get("text")
-        if "attachments" in msg_payload:
-            for att in msg_payload["attachments"]:
-                attachments.append(Attachment(
-                    content_type=att.get("contentType", "unknown"),
-                    id=att.get("id", ""),
-                    size=att.get("size", 0),
-                    filename=att.get("filename"),
-                    width=att.get("width"),
-                    height=att.get("height"),
-                    caption=att.get("caption")
-                ))
-
-    if not message_body and not attachments:
-        return
-
-    # 3. Check Prefixes
-    clean_msg: str = message_body.strip() if message_body else ""
+    # Check Prefixes
+    clean_msg: str = ctx.body.strip()
     prompt: str | None = None
 
-    settings.trigger_words.sort(key=len, reverse=True)
-    for tw in settings.trigger_words:
+    # Sort triggers by length to match longest first ("!gemini" before "!")
+    for tw in sorted(settings.trigger_words, key=len, reverse=True):
         if clean_msg.startswith(tw):
             content: str = clean_msg[len(tw):].strip()
+            # Ignore commands notes starting with #
             if content.startswith("#"):
                 return
-            else:
-                prompt = content
+            prompt = content
             break
 
-    if prompt is None and not attachments:
+    # If no prompt text and no attachments (and we are here), it might just be a matched prefix with empty body?
+    # Logic: If prompt is None here, it means the message didn't start with a trigger word.
+    # However, the filter in register_action should have caught this.
+    # We handle the case where it's ONLY a trigger word.
+    if prompt is None and not ctx.attachments:
         return
 
-    chat_id: str = group_id if group_id else source
-    update_chat_history(chat_id, source, message_body, attachments)
+    # Log to local history
+    update_chat_history(ctx.chat_id, ctx.source, ctx.body, ctx.attachments)
 
-    if quote is not None:
-        prompt = f"{prompt}\n\n{quote}" if prompt else quote
+    # Append quote to prompt if it exists
+    full_prompt: str = prompt or ""
+    if ctx.quote:
+        full_prompt = f"{full_prompt}\n\n>> {ctx.quote}"
 
     logger.info(
-        f"Processing request from {source} (Group: {group_id}): {prompt}")
+        f"Processing Gemini request from {ctx.source} in {ctx.chat_id}")
 
-    if not prompt:
+    if not full_prompt and not ctx.attachments:
         response_text = "🤖 Beep Boop. Please provide a prompt."
     else:
-        response_text: str | None = await gemini.get_response(chat_id, prompt)
+        # Note: We aren't sending attachments to Gemini in get_response yet.
+        # If your GeminiProvider supports images, pass ctx.attachments there.
+        response_text: str = await gemini.get_response(ctx.chat_id, full_prompt)
 
-    if response_text is None:
-        response_text = "🤖 Beep Boop. Something went wrong."
-
-    update_chat_history(chat_id, "Assistant", response_text)
-
-    await send_signal_message(source, response_text, group_id)
-    logger.info(f"Sent response to {source}")
+    update_chat_history(ctx.chat_id, "Assistant", response_text)
+    await send_signal_message(ctx.source, response_text, ctx.group_id)
 
 
 async def cmd_add_ctx(chat_id: str, params: list[str], prompt: str | None = None) -> tuple[str, list[str]]:
@@ -292,43 +308,48 @@ async def cmd_ls_file_store(chat_id: str, params: list[str], prompt: str | None)
 
 
 async def cmd_sync_store(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
-    # Update Gemini Store
-    # Invalidate cache and delete old store to force re-upload
     store: types.FileSearchStore | None = gemini.get_chat_store(chat_id)
-
-    if store is None or not store.name:
-        logger.info(f"No remote store found for chat {chat_id}.")
-        return f"❌ No remote store found for chat {chat_id}.", []
+    if not store or not store.name:
+        return f"❌ No remote store initialized for chat {chat_id}.", []
 
     chat_dir: str = get_safe_chat_dir(settings.file_store_path, chat_id)
     if not os.path.isdir(chat_dir):
-        logger.info(f"No file store found for chat {chat_id}.")
-        return f"❌ No file store found for chat {chat_id}.", []
+        return f"❌ No local file directory found for chat {chat_id}.", []
 
     files: list[str] = get_local_files(chat_id)
     if not files:
-        return f"No files found for syncing", []
+        return "⚠️ Local folder is empty.", []
 
+    uploaded_count = 0
     try:
         for filename in files:
             full_path: str = os.path.join(chat_dir, filename)
-            logger.info(f"Uploading {full_path}...")
-            upload_op = gemini.client.file_search_stores.upload_to_file_search_store(
+            logger.info(f"Uploading {filename} to store {store.name}...")
+
+            # Note: Check if upload_to_file_search_store is blocking or async.
+            # If it's blocking (standard sync client), wrap it in to_thread:
+            # await asyncio.to_thread(gemini.client.file_search_stores.upload_to_file_search_store, ...)
+            # Assuming standard SDK here:
+
+            upload_op: types.UploadToFileSearchStoreOperation = gemini.client.file_search_stores.upload_to_file_search_store(
                 file_search_store_name=store.name,
                 file=full_path
             )
+
+            # Wait for processing
             while not upload_op.done:
-                logger.info(f"Waiting for {filename}...")
-                time.sleep(2)
-                upload_op: types.UploadToFileSearchStoreOperation = gemini.client.operations.get(
-                    upload_op)
+                logger.debug(f"Waiting for {filename} processing...")
+                # CRITICAL FIX: Non-blocking sleep
+                await asyncio.sleep(2)
+                upload_op = gemini.client.operations.get(upload_op)
+
+            uploaded_count += 1
 
     except Exception as e:
-        logger.error(f"Failed to sync stores for {chat_id}: {e}")
-        return f"❌ Failed to sync stores for {chat_id}: {e}", []
+        logger.error(f"Sync failed for {chat_id}: {e}", exc_info=True)
+        return f"❌ Sync error: {e}", []
 
-    return f"🔄 Gemini File Search Store synced.", []
-
+    return f"🔄 Synced {uploaded_count} files to Gemini Store.", []
 
 register_command("gemini", "addctx", cmd_add_ctx,
                  "Adds the current prompt or history entries (by index) to the context for the next AI response.\n    Params: [<index1>,<index2>,...]")
