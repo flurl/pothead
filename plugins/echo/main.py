@@ -2,7 +2,7 @@ import logging
 from typing import Any
 
 from messaging import send_signal_message
-from plugin_manager import register_action
+from plugin_manager import register_action, register_command
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -41,6 +41,12 @@ async def echo_handler(data: dict[str, Any]) -> None:
             wants_answer_callback=log_echo_response
         )
 
+
+async def cmd_ping(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Responds with Pong!"""
+    return "Pong!", []
+
+
 # Register actions for both data messages and sync messages
 register_action(
     "echo",
@@ -54,3 +60,5 @@ register_action(
     jsonpath="$.params.envelope.syncMessage.sentMessage",
     handler=echo_handler
 )
+
+register_command("echo", "ping", cmd_ping, "Responds with Pong!")
