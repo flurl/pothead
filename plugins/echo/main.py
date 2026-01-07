@@ -36,16 +36,14 @@ async def echo_handler(data: dict[str, Any]) -> bool:
         logger.info(f"Echoing message from {source} in group {group_id}")
         if group_id:
             await send_signal_group_message(
-                source,
-                f"Echo: {message_body}",
                 group_id,
+                f"Echo: {message_body}",
                 wants_answer_callback=log_echo_response
             )
         else:
             await send_signal_direct_message(
-                source,
                 f"Echo: {message_body}",
-                group_id,
+                source,
                 wants_answer_callback=log_echo_response
             )
     return True

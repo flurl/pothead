@@ -213,9 +213,9 @@ async def action_send_to_gemini(data: dict[str, Any]) -> bool:
 
     update_chat_history(ctx.chat_id, "Assistant", response_text)
     if ctx.group_id:
-        await send_signal_group_message(ctx.group_id, response_text)
+        await send_signal_group_message(response_text, ctx.group_id)
     else:
-        await send_signal_direct_message(ctx.source, response_text)
+        await send_signal_direct_message(response_text, ctx.source)
     return True
 
 
