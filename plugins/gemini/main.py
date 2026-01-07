@@ -11,7 +11,7 @@ from google.genai import types
 from google.genai.pagers import Pager
 
 from datatypes import Attachment, ChatMessage, Priority
-from messaging import send_signal_message
+from messaging import send_signal_direct_message, send_signal_group_message
 from plugin_manager import register_action, register_command
 from state import CHAT_HISTORY
 from utils import get_local_files, get_safe_chat_dir, update_chat_history
@@ -212,7 +212,10 @@ async def action_send_to_gemini(data: dict[str, Any]) -> bool:
         response_text: str = await gemini.get_response(ctx.chat_id, full_prompt)
 
     update_chat_history(ctx.chat_id, "Assistant", response_text)
-    await send_signal_message(ctx.source, response_text, ctx.group_id)
+    if ctx.group_id:
+        await send_signal_group_message(ctx.group_id, response_text)
+    else:
+        await send_signal_direct_message(ctx.source, response_text)
     return True
 
 

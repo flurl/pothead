@@ -11,7 +11,7 @@ from jsonpath_ng.jsonpath import DatumInContext
 
 from commands import COMMANDS
 from datatypes import Attachment, Action, Priority
-from messaging import send_signal_message, set_signal_process
+from messaging import send_signal_direct_message, send_signal_group_message, set_signal_process
 from utils import check_permission, update_chat_history, get_chat_id
 from plugin_manager import PENDING_REPLIES, PLUGIN_ACTIONS, load_plugins, PLUGIN_COMMANDS
 
@@ -115,7 +115,10 @@ async def handle_command(data: dict[str, Any]) -> bool:
                 response_text: str | None = None
                 response_attachments: list[str] = []
                 response_text, response_attachments = await execute_command(chat_id, source, command, command_params, prompt)
-                await send_signal_message(source, response_text, group_id, response_attachments)
+                if group_id:
+                    await send_signal_group_message(response_text, group_id, response_attachments)
+                else:
+                    await send_signal_direct_message(response_text, source, response_attachments)
                 logger.info(f"Sent response to {source}")
                 return True
 

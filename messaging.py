@@ -19,9 +19,29 @@ def set_signal_process(proc: Process) -> None:
     signal_process = proc
 
 
-async def send_signal_message(
-    recipient: str,
+async def send_signal_direct_message(
     message: str,
+    recipient: str,
+    attachments: list[str] | None = None,
+    wants_answer_callback: Callable[[
+        dict[str, Any]], Awaitable[None]] | None = None
+) -> None:
+    await send_signal_message(message, recipient, attachments=attachments, wants_answer_callback=wants_answer_callback)
+
+
+async def send_signal_group_message(
+    message: str,
+    group_id: str,
+    attachments: list[str] | None = None,
+    wants_answer_callback: Callable[[
+        dict[str, Any]], Awaitable[None]] | None = None
+) -> None:
+    await send_signal_message(message, group_id=group_id, attachments=attachments, wants_answer_callback=wants_answer_callback)
+
+
+async def send_signal_message(
+    message: str,
+    recipient: str | None = None,
     group_id: str | None = None,
     attachments: list[str] | None = None,
     wants_answer_callback: Callable[[

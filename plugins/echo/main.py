@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from messaging import send_signal_message
+from messaging import send_signal_direct_message, send_signal_group_message
 from plugin_manager import register_action, register_command
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -34,12 +34,20 @@ async def echo_handler(data: dict[str, Any]) -> bool:
     # Avoid echoing commands or empty messages
     if source and message_body and not message_body.startswith("!"):
         logger.info(f"Echoing message from {source} in group {group_id}")
-        await send_signal_message(
-            source,
-            f"Echo: {message_body}",
-            group_id,
-            wants_answer_callback=log_echo_response
-        )
+        if group_id:
+            await send_signal_group_message(
+                source,
+                f"Echo: {message_body}",
+                group_id,
+                wants_answer_callback=log_echo_response
+            )
+        else:
+            await send_signal_direct_message(
+                source,
+                f"Echo: {message_body}",
+                group_id,
+                wants_answer_callback=log_echo_response
+            )
     return True
 
 

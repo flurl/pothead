@@ -7,7 +7,7 @@ import shutil
 from typing import Any
 
 from datatypes import Attachment, ChatMessage
-from messaging import send_signal_message, get_group_info
+from messaging import send_signal_group_message, get_group_info
 from plugin_manager import register_action, register_command
 from state import CHAT_HISTORY
 from utils import get_safe_chat_dir
@@ -94,7 +94,7 @@ async def send_welcome_message(chat_id: str) -> None:
     if os.path.exists(file_path):
         with open(file_path, "r") as f:
             welcome_message: str = f.read()
-            await send_signal_message("", welcome_message, chat_id)
+            await send_signal_group_message(chat_id, welcome_message)
 
 
 async def action_group_update(data: dict[str, Any]) -> bool:
