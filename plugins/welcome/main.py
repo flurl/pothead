@@ -3,15 +3,13 @@ from collections import deque
 from dataclasses import dataclass
 import logging
 import os
-import shutil
 from typing import Any
 
 from datatypes import Attachment, ChatMessage
 from messaging import send_signal_group_message, get_group_info
 from plugin_manager import register_action, register_command
 from state import CHAT_HISTORY
-from utils import get_safe_chat_dir
-from config import settings
+from utils import get_safe_chat_dir, save_attachment
 
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -94,7 +92,7 @@ async def send_welcome_message(chat_id: str) -> None:
     if os.path.exists(file_path):
         with open(file_path, "r") as f:
             welcome_message: str = f.read()
-            await send_signal_group_message(chat_id, welcome_message)
+            await send_signal_group_message(welcome_message, chat_id)
 
 
 async def action_group_update(data: dict[str, Any]) -> bool:
@@ -162,20 +160,8 @@ async def cmd_initgroup(chat_id: str, params: list[str], prompt: str | None) -> 
 
             if not is_text:
                 return "Only text files (txt, md) are valid.", []
-            src: str = os.path.join(settings.signal_attachments_path, att.id)
-            src = os.path.expanduser(src)
-            if os.path.exists(src):
-                # Determine destination filename
-                dest_name: str = f"welcome_message{os.path.splitext(src)[1]}"
-                dest: str = os.path.join(get_group_dir(chat_id), dest_name)
-                try:
-                    shutil.copy2(src, dest)
-                    logger.info(f"Saved attachment {att.id} to {dest}")
-                except Exception as e:
-                    logger.error(
-                        f"Failed to copy attachment {src} to {dest}: {e}")
-            else:
-                logger.warning(f"Attachment file not found: {src}")
+            dest_name: str = f"welcome_message{os.path.splitext(att.id)[1]}"
+            save_attachment(att, get_group_dir(chat_id), dest_name)
 
     return f"initialized group {chat_id}", []
 

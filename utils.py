@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 from typing import Any
 
 from config import settings
@@ -112,3 +113,39 @@ def get_chat_id(data: dict[str, Any]) -> str | None:
         group_id = msg_payload["groupInfo"].get("groupId")
 
     return group_id if group_id else source
+
+
+def save_attachment(att: Attachment, dest_dir: str, filename: str | None = None) -> str | None:
+    """
+    Saves an attachment to the destination directory.
+    """
+    src: str = os.path.join(settings.signal_attachments_path, att.id)
+    src = os.path.expanduser(src)
+
+    if not os.path.exists(src):
+        logger.warning(f"Attachment file not found: {src}")
+        return None
+
+    if filename:
+        dest_name = filename
+    else:
+        dest_name = att.id
+        if att.filename:
+            safe_name: str = "".join(
+                c if ('a' <= c <= 'z'
+                      or 'A' <= c <= 'Z'
+                      or '0' <= c <= '9'
+                      or c in "._- "
+                      )
+                else "_" for c in att.filename
+            )
+            dest_name = safe_name
+
+    dest: str = os.path.join(dest_dir, dest_name)
+    try:
+        shutil.copy2(src, dest)
+        logger.info(f"Saved attachment {att.id} to {dest}")
+        return dest
+    except Exception as e:
+        logger.error(f"Failed to copy attachment {src} to {dest}: {e}")
+        return None

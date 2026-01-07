@@ -1,6 +1,5 @@
 import logging
 import os
-import shutil
 from collections import deque
 from typing import cast
 
@@ -10,7 +9,7 @@ from typing import cast
 from config import settings
 from datatypes import Attachment, ChatMessage, Permissions, Command
 from state import CHAT_HISTORY
-from utils import get_local_files, get_safe_chat_dir, load_permissions, save_permissions
+from utils import get_local_files, get_safe_chat_dir, load_permissions, save_permissions, save_attachment
 
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -68,31 +67,8 @@ async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> tuple
     # Save Attachments
     saved_att_count = 0
     for att in attachments_to_save:
-        src: str = os.path.join(settings.signal_attachments_path, att.id)
-        src = os.path.expanduser(src)
-        if os.path.exists(src):
-            # Determine destination filename
-            dest_name: str = att.id
-            if att.filename:
-                safe_name: str = "".join(
-                    c if ('a' <= c <= 'z'
-                          or 'A' <= c <= 'Z'
-                          or '0' <= c <= '9'
-                          or c in "._- "
-                          )
-                    else "_" for c in att.filename
-                )
-                dest_name = f"{safe_name}"
-
-            dest: str = os.path.join(chat_dir, dest_name)
-            try:
-                shutil.copy2(src, dest)
-                saved_att_count += 1
-                logger.info(f"Saved attachment {att.id} to {dest}")
-            except Exception as e:
-                logger.error(f"Failed to copy attachment {src} to {dest}: {e}")
-        else:
-            logger.warning(f"Attachment file not found: {src}")
+        if save_attachment(att, chat_dir):
+            saved_att_count += 1
 
     return f"💾 Saved {len(lines_to_save)} text items and {saved_att_count} attachments to store.", []
 
