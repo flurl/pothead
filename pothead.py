@@ -37,14 +37,14 @@ async def execute_command(chat_id: str, sender: str, command: str, params: list[
     return f"❓ Unknown command: {command}", []
 
 
-async def handle_command(data: dict[str, Any]) -> None:
+async def handle_command(data: dict[str, Any]) -> bool:
     """Handles incoming commands."""
     params: dict[str, Any] = data.get("params", {})
     envelope: dict[str, Any] = params.get("envelope", {})
     source: str | None = envelope.get("source")
     if source is None:
         logger.error("No source found in envelope.")
-        return
+        return False
 
     message_body: str | None = None
     group_id: str | None = None
@@ -76,7 +76,7 @@ async def handle_command(data: dict[str, Any]) -> None:
                 ))
 
     if not message_body:
-        return
+        return False
 
     chat_id: str = group_id if group_id else source
     clean_msg: str = message_body.strip()
@@ -113,7 +113,9 @@ async def handle_command(data: dict[str, Any]) -> None:
                 response_text, response_attachments = await execute_command(chat_id, source, command, command_params, prompt)
                 await send_signal_message(source, response_text, group_id, response_attachments)
                 logger.info(f"Sent response to {source}")
-                return
+                return True
+
+    return False
 
 
 # dataMessage are usual messages from signal accounts
@@ -127,7 +129,6 @@ ACTIONS: list[Action] = [
             tuple(w+"#" for w in settings.trigger_words)),
         handler=handle_command,
         priority=Priority.SYS,
-        halt=True,
         origin="sys"
     ),
     Action(
@@ -137,7 +138,6 @@ ACTIONS: list[Action] = [
             tuple(w+"#" for w in settings.trigger_words)),
         handler=handle_command,
         priority=Priority.SYS,
-        halt=True,
         origin="sys"
     )
 ]
@@ -159,8 +159,8 @@ async def process_incoming_line(line: str) -> None:
 
     for action in ACTIONS:
         if action.matches(data):
-            await action.handler(data)
-            if action.halt:
+            message_handeled: bool = await action.handler(data)
+            if message_handeled:
                 return
 
 

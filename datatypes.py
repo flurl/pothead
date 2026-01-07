@@ -60,12 +60,15 @@ class Action:
         name: A descriptive name for the action.
         jsonpath: A JSONPath expression string used to locate specific data within the incoming JSON message.
                   Uses `jsonpath_ng.ext` for extended features.
+        origin: To which component the action belongs to.
         handler: An asynchronous callable that is executed if the action matches.
                  It receives the `Process` object and the data dictionary as arguments.
+                 It must return a boolean indicating whether the message was handled. True means
+                 the message was handeled successfully annd should not be further processed.
+                 False means that the message wasn't processed at all or that it might have 
+                 been processed but further processing is OK
         priority: The execution priority of the action. Actions are sorted by priority before execution.
                   Default is `Priority.NORMAL`.
-        halt: If True, stops the processing of subsequent actions in the loop if this action matches.
-              Default is False.
         filter: An optional callable that receives the value found by the JSONPath expression.
                 It must return `True` for the action to be considered a match.
                 If None, existence of the JSONPath match is sufficient.
@@ -73,9 +76,8 @@ class Action:
     name: str
     jsonpath: str
     origin: str
-    handler: Callable[[dict[str, Any]], Awaitable[None]]
+    handler: Callable[[dict[str, Any]], Awaitable[bool]]
     priority: Priority = Priority.NORMAL
-    halt: bool = False
     filter: Callable[[Any], bool] | None = None
     _compiled_path: Any = field(init=False)
 

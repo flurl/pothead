@@ -12,7 +12,7 @@ async def log_echo_response(response_data: dict[str, Any]) -> None:
     logger.info(f"Received confirmation for echo: {response_data}")
 
 
-async def echo_handler(data: dict[str, Any]) -> None:
+async def echo_handler(data: dict[str, Any]) -> bool:
     """
     Handles echoing a message back to the sender from either a dataMessage or a syncMessage.
     """
@@ -26,7 +26,7 @@ async def echo_handler(data: dict[str, Any]) -> None:
         msg_payload = envelope.get("syncMessage", {}).get("sentMessage")
 
     if not msg_payload:
-        return
+        return False
 
     message_body = msg_payload.get("message")
     group_id = msg_payload.get("groupInfo", {}).get("groupId")
@@ -40,6 +40,7 @@ async def echo_handler(data: dict[str, Any]) -> None:
             group_id,
             wants_answer_callback=log_echo_response
         )
+    return True
 
 
 async def cmd_ping(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:

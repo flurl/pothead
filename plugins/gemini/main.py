@@ -166,11 +166,11 @@ def extract_message_context(data: dict[str, Any]) -> MessageContext | None:
     )
 
 
-async def action_send_to_gemini(data: dict[str, Any]) -> None:
+async def action_send_to_gemini(data: dict[str, Any]) -> bool:
     """Handles AI prompts."""
     ctx: MessageContext | None = extract_message_context(data)
     if not ctx or not ctx.has_content:
-        return
+        return False
 
     # Check Prefixes
     clean_msg: str = ctx.body.strip()
@@ -182,7 +182,7 @@ async def action_send_to_gemini(data: dict[str, Any]) -> None:
             content: str = clean_msg[len(tw):].strip()
             # Ignore commands notes starting with #
             if content.startswith("#"):
-                return
+                return False
             prompt = content
             break
 
@@ -191,7 +191,7 @@ async def action_send_to_gemini(data: dict[str, Any]) -> None:
     # However, the filter in register_action should have caught this.
     # We handle the case where it's ONLY a trigger word.
     if prompt is None and not ctx.attachments:
-        return
+        return False
 
     # Log to local history
     update_chat_history(ctx.chat_id, ctx.source, ctx.body, ctx.attachments)
@@ -213,6 +213,7 @@ async def action_send_to_gemini(data: dict[str, Any]) -> None:
 
     update_chat_history(ctx.chat_id, "Assistant", response_text)
     await send_signal_message(ctx.source, response_text, ctx.group_id)
+    return True
 
 
 async def cmd_add_ctx(chat_id: str, params: list[str], prompt: str | None = None) -> tuple[str, list[str]]:
@@ -368,7 +369,6 @@ register_action(
     filter=lambda msg: msg.strip().startswith(tuple(settings.trigger_words)),
     handler=action_send_to_gemini,
     priority=Priority.HIGH,
-    halt=True
 )
 register_action(
     "gemini",
@@ -377,5 +377,4 @@ register_action(
     filter=lambda msg: msg.strip().startswith(tuple(settings.trigger_words)),
     handler=action_send_to_gemini,
     priority=Priority.HIGH,
-    halt=True
 )

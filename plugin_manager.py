@@ -25,15 +25,14 @@ def register_action(
     plugin_id: str,
     name: str,
     jsonpath: str,
-    handler: Callable[[dict[str, Any]], Awaitable[None]],
+    handler: Callable[[dict[str, Any]], Awaitable[bool]],
     priority: Priority = Priority.NORMAL,
     filter: Callable[[Any], bool] | None = None,
-    halt: bool = False,
 ) -> None:
     """Decorator to register a plugin action."""
     logger.info(f"Registering plugin action '{name}' from '{plugin_id}'")
     action = Action(name=name, jsonpath=jsonpath, handler=handler,
-                    priority=priority, filter=filter, halt=halt, origin=f"plugin:{plugin_id}")
+                    priority=priority, filter=filter, origin=f"plugin:{plugin_id}")
     PLUGIN_ACTIONS.append(action)
 
 
