@@ -1,0 +1,5 @@
+id = "welcome"
+name = "Welcome Plugin"
+description = "A plugin for welcoming new group members."
+version = "0.1.0"
+author = "Pothead-Dev"

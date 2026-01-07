@@ -69,3 +69,37 @@ async def send_signal_message(
         await proc.stdin.drain()
     except Exception as e:
         logger.error(f"Failed to send message: {e}")
+
+
+async def get_group_info(group_id: str, callback: Callable[[dict[str, Any]], Awaitable[None]]) -> None:
+    """
+    Requests group information from signal-cli and calls the callback with the response.
+    """
+    global signal_process
+    if not signal_process:
+        logger.error("Signal process not initialized.")
+        return
+
+    proc: Process = signal_process
+    params: dict[str, Any] = {
+        "groupId": group_id
+    }
+
+    request_id = str(uuid.uuid4())
+
+    PENDING_REPLIES[request_id] = callback
+
+    rpc_request: dict[str, Any] = {
+        "jsonrpc": "2.0",
+        "method": "listGroups",
+        "params": params,
+        "id": request_id
+    }
+
+    # Write to signal-cli stdin
+    try:
+        assert proc.stdin is not None
+        proc.stdin.write(json.dumps(rpc_request).encode('utf-8') + b"\n")
+        await proc.stdin.drain()
+    except Exception as e:
+        logger.error(f"Failed to send message: {e}")
