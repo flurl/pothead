@@ -94,3 +94,21 @@ def update_chat_history(chat_id: str, sender: str, message: str | None, attachme
     logger.debug(f"Chat history for {chat_id}: {CHAT_HISTORY[chat_id]}")
     for line in CHAT_HISTORY[chat_id]:
         logger.debug(line)
+
+
+def get_chat_id(data: dict[str, Any]) -> str | None:
+    params = data.get("params", {})
+    envelope = params.get("envelope", {})
+    source = envelope.get("source")
+
+    msg_payload = None
+    if "dataMessage" in envelope:
+        msg_payload = envelope.get("dataMessage")
+    elif "syncMessage" in envelope:
+        msg_payload = envelope.get("syncMessage", {}).get("sentMessage")
+
+    group_id = None
+    if msg_payload and "groupInfo" in msg_payload:
+        group_id = msg_payload["groupInfo"].get("groupId")
+
+    return group_id if group_id else source

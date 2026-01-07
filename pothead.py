@@ -12,7 +12,7 @@ from jsonpath_ng.jsonpath import DatumInContext
 from commands import COMMANDS
 from datatypes import Attachment, Action, Priority
 from messaging import send_signal_message, set_signal_process
-from utils import check_permission, update_chat_history
+from utils import check_permission, update_chat_history, get_chat_id
 from plugin_manager import PENDING_REPLIES, PLUGIN_ACTIONS, load_plugins, PLUGIN_COMMANDS
 
 
@@ -79,7 +79,10 @@ async def handle_command(data: dict[str, Any]) -> bool:
     if not message_body:
         return False
 
-    chat_id: str = group_id if group_id else source
+    chat_id: str | None = get_chat_id(data)
+    if not chat_id:
+        return False
+
     clean_msg: str = message_body.strip()
 
     settings.trigger_words.sort(key=len, reverse=True)
