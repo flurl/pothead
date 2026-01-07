@@ -4,15 +4,16 @@ import asyncio
 from asyncio.subprocess import Process
 import json
 import logging
-from plugin_manager import PENDING_REPLIES, PLUGIN_ACTIONS, load_plugins, PLUGIN_COMMANDS
-
 import sys
 from typing import Any
+
+from jsonpath_ng.jsonpath import DatumInContext
 
 from commands import COMMANDS
 from datatypes import Attachment, Action, Priority
 from messaging import send_signal_message, set_signal_process
 from utils import check_permission, update_chat_history
+from plugin_manager import PENDING_REPLIES, PLUGIN_ACTIONS, load_plugins, PLUGIN_COMMANDS
 
 
 # --- CONFIGURATION ---
@@ -118,6 +119,12 @@ async def handle_command(data: dict[str, Any]) -> bool:
     return False
 
 
+def command_filter(match: DatumInContext) -> bool:
+    if str(match.path) == "message" and match.value is not None:  # type: ignore
+        msg: str = match.value  # type: ignore
+    return msg.strip().startswith(tuple(w+"#" for w in settings.trigger_words))  # type: ignore
+
+
 # dataMessage are usual messages from signal accounts
 # syncMessage are messages sent from me on other devices (or received there while PH was offline)
 # the order is important as we want to first check for !TRIGGER#CMD and then for just !TRIGGER
@@ -125,8 +132,7 @@ ACTIONS: list[Action] = [
     Action(
         name="Handle Command in Data Message",
         jsonpath="$.params.envelope.dataMessage.message",
-        filter=lambda msg: msg.strip().startswith(
-            tuple(w+"#" for w in settings.trigger_words)),
+        filter=command_filter,
         handler=handle_command,
         priority=Priority.SYS,
         origin="sys"
@@ -134,8 +140,7 @@ ACTIONS: list[Action] = [
     Action(
         name="Handle Command in Sync Message",
         jsonpath="$.params.envelope.syncMessage.sentMessage.message",
-        filter=lambda msg: msg.strip().startswith(
-            tuple(w+"#" for w in settings.trigger_words)),
+        filter=command_filter,
         handler=handle_command,
         priority=Priority.SYS,
         origin="sys"

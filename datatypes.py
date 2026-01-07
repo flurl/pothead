@@ -2,8 +2,11 @@ from dataclasses import dataclass, field
 from typing import Any, TypeAlias
 from collections.abc import Awaitable, Callable
 from enum import Enum
+import logging
 
 import jsonpath_ng.ext
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 Permissions: TypeAlias = dict[str, dict[str, list[str] | dict[str, list[str]]]]
 
@@ -85,12 +88,25 @@ class Action:
         self._compiled_path = jsonpath_ng.ext.parse(self.jsonpath)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType] # nopep8
 
     def matches(self, data: dict[str, Any]) -> bool:
-        matches: Any = self._compiled_path.find(data)
-        if not matches:
+        try:
+            matches: Any = self._compiled_path.find(data)
+            if not matches:
+                return False
+            if self.filter:
+                for match in matches:
+                    try:
+                        if self.filter(match):
+                            logger.debug(f"Action '{self.name}' matched.")
+                            return True
+                    except Exception as e:
+                        logger.error(
+                            f"Action '{self.name}': Filter error: {e}")
+                return False
+            logger.debug(f"Action '{self.name}' matched.")
+            return True
+        except Exception as e:
+            logger.error(f"Action '{self.name}': Match error: {e}")
             return False
-        if self.filter:
-            return any(self.filter(match.value) for match in matches)
-        return True
 
 
 @dataclass

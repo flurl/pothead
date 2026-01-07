@@ -366,7 +366,7 @@ register_action(
     "gemini",
     name="Handle Gemini in Sync Message",
     jsonpath="$.params.envelope.syncMessage.sentMessage.message",
-    filter=lambda msg: msg.strip().startswith(tuple(settings.trigger_words)),
+    filter=lambda match: match.value.strip().startswith(tuple(settings.trigger_words)),
     handler=action_send_to_gemini,
     priority=Priority.HIGH,
 )
@@ -374,7 +374,7 @@ register_action(
     "gemini",
     name="Handle Gemini in Data Message",
     jsonpath="$.params.envelope.dataMessage.message",
-    filter=lambda msg: msg.strip().startswith(tuple(settings.trigger_words)),
+    filter=lambda match: match.value.strip().startswith(tuple(settings.trigger_words)),
     handler=action_send_to_gemini,
     priority=Priority.HIGH,
 )
