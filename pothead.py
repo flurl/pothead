@@ -122,6 +122,8 @@ async def handle_command(data: dict[str, Any]) -> bool:
 def command_filter(match: DatumInContext) -> bool:
     if str(match.path) == "message" and match.value is not None:  # type: ignore
         msg: str = match.value  # type: ignore
+    else:
+        return False
     return msg.strip().startswith(tuple(w+"#" for w in settings.trigger_words))  # type: ignore
 
 
