@@ -1,7 +1,8 @@
 import logging
 from typing import Any
 
-from messaging import send_signal_direct_message, send_signal_group_message
+from datatypes import ChatMessage
+from messaging import send_signal_message
 from plugin_manager import register_action, register_command
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -16,36 +17,19 @@ async def echo_handler(data: dict[str, Any]) -> bool:
     """
     Handles echoing a message back to the sender from either a dataMessage or a syncMessage.
     """
-    envelope = data.get("params", {}).get("envelope", {})
-    source = envelope.get("source")
-
-    msg_payload = None
-    if "dataMessage" in envelope:
-        msg_payload = envelope.get("dataMessage")
-    elif "syncMessage" in envelope:
-        msg_payload = envelope.get("syncMessage", {}).get("sentMessage")
-
-    if not msg_payload:
+    incoming: ChatMessage | None = ChatMessage.from_json(data)
+    if not incoming:
         return False
 
-    message_body = msg_payload.get("message")
-    group_id = msg_payload.get("groupInfo", {}).get("groupId")
+    if not incoming.text:
+        return False
 
-    # Avoid echoing commands or empty messages
-    if source and message_body and not message_body.startswith("!"):
-        logger.info(f"Echoing message from {source} in group {group_id}")
-        if group_id:
-            await send_signal_group_message(
-                group_id,
-                f"Echo: {message_body}",
-                wants_answer_callback=log_echo_response
-            )
-        else:
-            await send_signal_direct_message(
-                f"Echo: {message_body}",
-                source,
-                wants_answer_callback=log_echo_response
-            )
+    if not incoming.text.startswith("!"):
+        logger.info(
+            f"Echoing message from {incoming.source} in group {incoming.group_id}")
+        outgoing: ChatMessage = ChatMessage(
+            source="Echo", destination=incoming.source, text=f"Echo: {incoming.text}", group_id=incoming.group_id)
+        await send_signal_message(outgoing, wants_answer_callback=log_echo_response)
     return True
 
 

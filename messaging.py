@@ -7,6 +7,7 @@ from typing import Any
 
 from asyncio.subprocess import Process
 from config import settings
+from datatypes import ChatMessage
 from plugin_manager import PENDING_REPLIES
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -26,7 +27,9 @@ async def send_signal_direct_message(
     wants_answer_callback: Callable[[
         dict[str, Any]], Awaitable[None]] | None = None
 ) -> None:
-    await send_signal_message(message, recipient, attachments=attachments, wants_answer_callback=wants_answer_callback)
+    msg: ChatMessage = ChatMessage(
+        source="Assistant", destination=recipient, text=message)
+    await send_signal_message(msg, attachments=attachments, wants_answer_callback=wants_answer_callback)
 
 
 async def send_signal_group_message(
@@ -36,13 +39,13 @@ async def send_signal_group_message(
     wants_answer_callback: Callable[[
         dict[str, Any]], Awaitable[None]] | None = None
 ) -> None:
-    await send_signal_message(message, group_id=group_id, attachments=attachments, wants_answer_callback=wants_answer_callback)
+    msg: ChatMessage = ChatMessage(
+        source="Assistant", group_id=group_id, text=message)
+    await send_signal_message(msg, attachments=attachments, wants_answer_callback=wants_answer_callback)
 
 
 async def send_signal_message(
-    message: str,
-    recipient: str | None = None,
-    group_id: str | None = None,
+    msg: ChatMessage,
     attachments: list[str] | None = None,
     wants_answer_callback: Callable[[
         dict[str, Any]], Awaitable[None]] | None = None
@@ -57,6 +60,11 @@ async def send_signal_message(
         logger.error("Signal process not initialized.")
         return
     proc: Process = signal_process
+
+    message: str | None = msg.text
+    recipient: str | None = msg.destination
+    group_id: str | None = msg.group_id
+
     params: dict[str, Any] = {
         "account": settings.signal_account,
         "message": message
@@ -81,6 +89,7 @@ async def send_signal_message(
         "params": params,
         "id": request_id
     }
+    logger.debug(f"Sending message: {rpc_request}")
 
     # Write to signal-cli stdin
     try:
