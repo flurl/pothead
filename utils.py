@@ -84,14 +84,12 @@ def check_permission(chat_id: str, sender: str, command: str) -> bool:
     return False
 
 
-def update_chat_history(chat_id: str, sender: str, message: str | None, attachments: list[Attachment] | None = None) -> None:
-    if attachments is None:
-        attachments = []
+def update_chat_history(msg: ChatMessage) -> None:
+    chat_id: str = msg.chat_id
     if chat_id not in CHAT_HISTORY:
         CHAT_HISTORY[chat_id] = deque[ChatMessage](
             maxlen=settings.history_max_length)
-    CHAT_HISTORY[chat_id].append(ChatMessage(
-        sender=sender, text=message, attachments=attachments))
+    CHAT_HISTORY[chat_id].append(msg)
     logger.debug(f"Chat history for {chat_id}: {CHAT_HISTORY[chat_id]}")
     for line in CHAT_HISTORY[chat_id]:
         logger.debug(line)

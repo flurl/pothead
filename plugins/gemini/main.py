@@ -20,7 +20,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 
 @dataclass
-class MessageContext:
+class MessageCotext:
     """Standardized representation of an incoming message."""
     source: str
     chat_id: str
@@ -123,57 +123,15 @@ class GeminiProvider:
 gemini = GeminiProvider(api_key=settings.gemini_api_key)
 
 
-def extract_message_context(data: dict[str, Any]) -> MessageContext | None:
-    """Parses the raw signal-cli envelope into a MessageContext."""
-    envelope: dict[str, Any] = data.get("params", {}).get("envelope", {})
-    source: str | None = envelope.get("source")
-
-    if not source:
-        return None
-
-    # Determine payload type
-    msg_payload: dict[str, Any] | None = envelope.get("dataMessage") or envelope.get(
-        "syncMessage", {}).get("sentMessage")
-    if not msg_payload:
-        return None
-
-    # Extract basic info
-    body: str = msg_payload.get("message", "")
-    group_info: dict[str, Any] = msg_payload.get("groupInfo", {})
-    group_id: str | None = group_info.get("groupId")
-    quote: str | None = msg_payload.get("quote", {}).get("text")
-
-    # Extract attachments
-    attachments: list[Attachment] = []
-    for att in msg_payload.get("attachments", []):
-        attachments.append(Attachment(
-            content_type=att.get("contentType", "unknown"),
-            id=att.get("id", ""),
-            size=att.get("size", 0),
-            filename=att.get("filename"),
-            width=att.get("width"),
-            height=att.get("height"),
-            caption=att.get("caption")
-        ))
-
-    return MessageContext(
-        source=source,
-        chat_id=group_id if group_id else source,
-        body=body,
-        group_id=group_id,
-        quote=quote,
-        attachments=attachments
-    )
-
-
 async def action_send_to_gemini(data: dict[str, Any]) -> bool:
     """Handles AI prompts."""
-    ctx: MessageContext | None = extract_message_context(data)
-    if not ctx or not ctx.has_content:
+    # ctx: MessageContext | None = extract_message_context(data)
+    msg: ChatMessage | None = ChatMessage.from_json(data)
+    if not msg:
         return False
 
     # Check Prefixes
-    clean_msg: str = ctx.body.strip()
+    clean_msg: str = msg.text and msg.text.strip() or ""
     prompt: str | None = None
 
     # Sort triggers by length to match longest first ("!gemini" before "!")
@@ -190,32 +148,33 @@ async def action_send_to_gemini(data: dict[str, Any]) -> bool:
     # Logic: If prompt is None here, it means the message didn't start with a trigger word.
     # However, the filter in register_action should have caught this.
     # We handle the case where it's ONLY a trigger word.
-    if prompt is None and not ctx.attachments:
+    if prompt is None and not msg.attachments:
         return False
 
     # Log to local history
-    update_chat_history(ctx.chat_id, ctx.source, ctx.body, ctx.attachments)
+    # update_chat_history(ctx.chat_id, ctx.source, ctx.body, ctx.attachments)
 
     # Append quote to prompt if it exists
     full_prompt: str = prompt or ""
-    if ctx.quote:
-        full_prompt = f"{full_prompt}\n\n>> {ctx.quote}"
+    if msg.quote and msg.quote.text:
+        full_prompt = f"{full_prompt}\n\n>> {msg.quote.text}"
 
     logger.info(
-        f"Processing Gemini request from {ctx.source} in {ctx.chat_id}")
+        f"Processing Gemini request from {msg.source} in {msg.chat_id}")
 
-    if not full_prompt and not ctx.attachments:
+    if not full_prompt and not msg.attachments:
         response_text = "🤖 Beep Boop. Please provide a prompt."
     else:
         # Note: We aren't sending attachments to Gemini in get_response yet.
         # If your GeminiProvider supports images, pass ctx.attachments there.
-        response_text: str = await gemini.get_response(ctx.chat_id, full_prompt)
+        response_text: str = await gemini.get_response(msg.chat_id, full_prompt)
 
-    update_chat_history(ctx.chat_id, "Assistant", response_text)
-    if ctx.group_id:
-        await send_signal_group_message(response_text, ctx.group_id)
+    update_chat_history(ChatMessage(source="Assistant",
+                        destination=msg.chat_id, text=response_text))
+    if msg.group_id:
+        await send_signal_group_message(response_text, msg.group_id)
     else:
-        await send_signal_direct_message(response_text, ctx.source)
+        await send_signal_direct_message(response_text, msg.source)
     return True
 
 

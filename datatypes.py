@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
-from typing import Any, TypeAlias
+import json
+from typing import Any, Self, TypeAlias, cast
 from collections.abc import Awaitable, Callable
 from enum import Enum
 import logging
@@ -21,12 +22,54 @@ class Attachment:
     height: int | None = None
     caption: str | None = None
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        return cls(
+            content_type=data.get("contentType", "unknown"),
+            id=data.get("id", ""),
+            size=data.get("size", 0),
+            filename=data.get("filename"),
+            width=data.get("width"),
+            height=data.get("height"),
+            caption=data.get("caption")
+        )
+
+
+@dataclass
+class MessageQuote:
+    id: int
+    author: str
+    author_number: str
+    author_uuid: str
+    text: str | None = None
+    attachments: list[Attachment] | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        return cls(
+            id=data.get("id", 0),
+            author=data.get("author", ""),
+            author_number=data.get("authorNumber", ""),
+            author_uuid=data.get("authorUuid", ""),
+            text=data.get("text"),
+            attachments=[Attachment.from_dict(a)
+                         for a in data.get("attachments", [])]
+        )
+
 
 @dataclass
 class ChatMessage:
-    sender: str
+    source: str
+    destination: str | None
     text: str | None
-    attachments: list[Attachment]
+    attachments: list[Attachment] | None = None
+    quote: MessageQuote | None = None
+    # if it's a message to or from a group there will be a group_id
+    group_id: str | None = None
+
+    @property
+    def chat_id(self) -> str:
+        return self.destination if self.destination else self.source
 
     def __str__(self) -> str:
         out: list[str] = []
@@ -41,6 +84,53 @@ class ChatMessage:
                     details += f" Caption: {att.caption}"
                 out.append(f"  - {details}")
         return "\n".join(out)
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any] | str) -> Self | None:
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                return None
+
+        params: dict[str, Any] = cast(dict[str, Any], data).get("params", {})
+        envelope: dict[str, Any] = params.get("envelope", {})
+        source: str | None = envelope.get("source")
+
+        if source is None:
+            return None
+
+        group_id: str | None = None
+
+        if "dataMessage" in envelope:
+            data_message: dict[str, Any] = envelope.get("dataMessage", {})
+            destination: str | None = data_message.get("groupInfo", {}).get(
+                "groupId", None)
+            group_id = destination
+            text: str | None = data_message.get("message")
+            attachments: list[Attachment] = [Attachment.from_dict(
+                a) for a in data_message.get("attachments", [])]
+            quote: MessageQuote | None = data_message.get("quote", None)
+        elif "syncMessage" in envelope:
+            sent_message: dict[str, Any] = envelope.get(
+                "syncMessage", {}).get("sentMessage", {})
+
+            if not sent_message:
+                return None
+
+            destination: str | None = sent_message.get("destination")
+            if not destination and "groupInfo" in sent_message:
+                group_info: dict[str, Any] = sent_message.get("groupInfo", {})
+                destination = group_info.get("groupId")
+                group_id = destination
+            text: str | None = sent_message.get("message")
+            attachments: list[Attachment] = [Attachment.from_dict(
+                a) for a in sent_message.get("attachments", [])]
+            quote: MessageQuote | None = sent_message.get("quote", None)
+        else:
+            return None
+
+        return cls(source=source, destination=destination, text=text, attachments=attachments, quote=quote, group_id=group_id)
 
 
 class Priority(Enum):
@@ -68,7 +158,7 @@ class Action:
                  It receives the `Process` object and the data dictionary as arguments.
                  It must return a boolean indicating whether the message was handled. True means
                  the message was handeled successfully annd should not be further processed.
-                 False means that the message wasn't processed at all or that it might have 
+                 False means that the message wasn't processed at all or that it might have
                  been processed but further processing is OK
         priority: The execution priority of the action. Actions are sorted by priority before execution.
                   Default is `Priority.NORMAL`.

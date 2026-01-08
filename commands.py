@@ -33,8 +33,10 @@ async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> tuple
         # 2. Check requested history entries
         for p in params:
             try:
-                idx = int(p)
+                idx: int = int(p)
                 # 1-based index from end, skipping the command itself
+                # when the user issued the command, his command message itself was not in the history
+                # that means, his indexes are off by 1 which we have to take into account
                 if 1 <= idx < len(history):
                     msg: ChatMessage = history[-idx-1]
                     if msg.text:
@@ -49,6 +51,9 @@ async def cmd_save(chat_id: str, params: list[str], prompt: str | None) -> tuple
 
     if not lines_to_save and not attachments_to_save:
         return "⚠️ Nothing to save.", []
+
+    logger.debug(
+        f"Saving {lines_to_save=} lines and {attachments_to_save=} attachments.")
 
     # File operations
     chat_dir: str = get_safe_chat_dir(settings.file_store_path, chat_id)

@@ -10,9 +10,9 @@ from typing import Any
 from jsonpath_ng.jsonpath import DatumInContext
 
 from commands import COMMANDS
-from datatypes import Attachment, Action, Priority
+from datatypes import Action, ChatMessage, MessageQuote, Priority
 from messaging import send_signal_direct_message, send_signal_group_message, set_signal_process
-from utils import check_permission, update_chat_history, get_chat_id
+from utils import check_permission, update_chat_history
 from plugin_manager import PENDING_REPLIES, PLUGIN_ACTIONS, load_plugins, PLUGIN_COMMANDS
 
 
@@ -40,58 +40,23 @@ async def execute_command(chat_id: str, sender: str, command: str, params: list[
 
 async def handle_command(data: dict[str, Any]) -> bool:
     """Handles incoming commands."""
-    params: dict[str, Any] = data.get("params", {})
-    envelope: dict[str, Any] = params.get("envelope", {})
-    source: str | None = envelope.get("source")
-    if source is None:
-        logger.error("No source found in envelope.")
+    msg: ChatMessage | None = ChatMessage.from_json(data)
+    if not msg:
         return False
 
-    message_body: str | None = None
-    group_id: str | None = None
-    quote: str | None = None
-    attachments: list[Attachment] = []
+    chat_id: str = msg.chat_id
 
-    msg_payload: dict[str, Any] | None = None
-    if "dataMessage" in envelope:
-        msg_payload = envelope.get("dataMessage")
-    elif "syncMessage" in envelope:
-        msg_payload = envelope.get("syncMessage", {}).get("sentMessage")
-
-    if msg_payload:
-        message_body = msg_payload.get("message")
-        if "groupInfo" in msg_payload:
-            group_id = msg_payload["groupInfo"].get("groupId")
-        if "quote" in msg_payload:
-            quote = msg_payload["quote"].get("text")
-        if "attachments" in msg_payload:
-            for att in msg_payload["attachments"]:
-                attachments.append(Attachment(
-                    content_type=att.get("contentType", "unknown"),
-                    id=att.get("id", ""),
-                    size=att.get("size", 0),
-                    filename=att.get("filename"),
-                    width=att.get("width"),
-                    height=att.get("height"),
-                    caption=att.get("caption")
-                ))
-
-    if not message_body:
+    if not msg.text:
         return False
+    clean_msg: str = msg.text.strip()
 
-    chat_id: str | None = get_chat_id(data)
-    if not chat_id:
-        return False
-
-    clean_msg: str = message_body.strip()
+    quote: MessageQuote | None = msg.quote
 
     settings.trigger_words.sort(key=len, reverse=True)
     for tw in settings.trigger_words:
         if clean_msg.startswith(tw):
             content: str = clean_msg[len(tw):].strip()
             if content.startswith("#"):
-                update_chat_history(chat_id, source, message_body, attachments)
-
                 cmd_content: str = content[1:]
                 if " " in cmd_content:
                     cmd_part: str
@@ -108,21 +73,32 @@ async def handle_command(data: dict[str, Any]) -> bool:
                                              for p in parts[1:]] if len(parts) > 1 else []
 
                 if quote is not None:
-                    prompt = f"{prompt}\n\n{quote}" if prompt else quote
+                    prompt = f"{prompt}\n\n{quote.text}" if prompt else quote.text
 
                 logger.info(
-                    f"Processing command from {source} (Group: {group_id}): {command} {command_params}")
+                    f"Processing command from {msg.source}): {command} {command_params}")
                 response_text: str | None = None
                 response_attachments: list[str] = []
-                response_text, response_attachments = await execute_command(chat_id, source, command, command_params, prompt)
-                if group_id:
-                    await send_signal_group_message(response_text, group_id, response_attachments)
+                response_text, response_attachments = await execute_command(chat_id, msg.source, command, command_params, prompt)
+
+                if msg.group_id:
+                    await send_signal_group_message(response_text, msg.group_id, response_attachments)
                 else:
-                    await send_signal_direct_message(response_text, source, response_attachments)
-                update_chat_history(chat_id, "Assistant", response_text)
-                logger.info(f"Sent response to {source}")
+                    await send_signal_direct_message(response_text, msg.source, response_attachments)
+
+                update_chat_history(ChatMessage(
+                    source="Assistant", destination=chat_id, text=response_text))
+                logger.info(f"Sent response to {msg.source}")
                 return True
 
+    return False
+
+
+async def handle_history(data: dict[str, Any]) -> bool:
+    msg: ChatMessage | None = ChatMessage.from_json(data)
+    if msg:
+        update_chat_history(msg)
+    # always return false so that the message is further processed
     return False
 
 
@@ -138,6 +114,14 @@ def command_filter(match: DatumInContext) -> bool:
 # syncMessage are messages sent from me on other devices (or received there while PH was offline)
 # the order is important as we want to first check for !TRIGGER#CMD and then for just !TRIGGER
 ACTIONS: list[Action] = [
+    Action(
+        name="Handle history",
+        jsonpath="$.params.envelope",
+        filter=None,
+        handler=handle_history,
+        priority=Priority.SYS,
+        origin="sys"
+    ),
     Action(
         name="Handle Command in Data Message",
         jsonpath="$.params.envelope.dataMessage.message",
