@@ -20,7 +20,7 @@ from plugin_manager import PENDING_REPLIES, PLUGIN_ACTIONS, load_plugins, PLUGIN
 # Configure logging
 logging.basicConfig(
     level=settings.log_level.upper(),
-    format="%(asctime)s [%(levelname)s] %(message)s",
+    format="%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger: logging.Logger = logging.getLogger(__name__)
