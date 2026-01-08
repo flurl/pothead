@@ -60,8 +60,8 @@ class MessageQuote:
 @dataclass
 class ChatMessage:
     source: str
-    destination: str | None
-    text: str | None
+    destination: str | None = None
+    text: str | None = None
     attachments: list[Attachment] | None = None
     quote: MessageQuote | None = None
     # if it's a message to or from a group there will be a group_id
