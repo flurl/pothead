@@ -119,6 +119,7 @@ async def handle_command(data: dict[str, Any]) -> bool:
                     await send_signal_group_message(response_text, group_id, response_attachments)
                 else:
                     await send_signal_direct_message(response_text, source, response_attachments)
+                update_chat_history(chat_id, "Assistant", response_text)
                 logger.info(f"Sent response to {source}")
                 return True
 
