@@ -1,4 +1,12 @@
 
+"""
+This module handles low-level communication with the `signal-cli` subprocess.
+
+It provides functions to send direct and group messages, request group info,
+and manage the `signal-cli` process reference. It encapsulates the JSON-RPC
+protocol details required to interact with `signal-cli`.
+"""
+
 import json
 import logging
 import uuid

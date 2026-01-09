@@ -1,3 +1,18 @@
+"""
+This plugin provides a welcome message functionality for Signal groups.
+It monitors group updates, identifies new members, and sends a predefined
+welcome message to the group when new members join.
+
+Features:
+- **Group Member Tracking:** Keeps a record of group members to detect new additions.
+- **Automatic Welcome Message:** Sends a customizable welcome message to the group
+  when new members are detected.
+- **Welcome Message Customization:** Allows saving a text file as the welcome message
+  using a command.
+- **Initialization Command:** Provides a command to initialize the plugin for a group,
+  saving current members and optionally setting a welcome message.
+"""
+
 import asyncio
 from collections import deque
 from dataclasses import dataclass

@@ -1,3 +1,12 @@
+"""
+This module defines the built-in system commands for the Pothead application.
+
+It contains the handler functions for commands like `save`, `lsstore`, `grant`,
+`mkgroup`, etc., which are registered in the global `COMMANDS` list. These
+commands provide core functionality for managing chat history, file storage,
+permissions, and user groups.
+"""
+
 import logging
 import os
 from collections import deque

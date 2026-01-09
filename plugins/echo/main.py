@@ -1,3 +1,12 @@
+"""
+This plugin demonstrates basic functionalities of the Pothead plugin system.
+It includes:
+- Registering actions by echoing back messages received from Signal (both data and sync messages).
+- Registering commands by responding to a simple 'ping' command.
+- Registering event handlers by sending messages to the superuser on startup and shutdown events.
+- Consuming other plugin's services by utilizing the 'cron' service to schedule a periodic 'heartbeat' task.
+"""
+
 import logging
 from typing import Any, Callable
 

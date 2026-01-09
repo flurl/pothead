@@ -1,4 +1,16 @@
 
+"""
+This module provides utility functions for file system operations, permission checks,
+and state management.
+
+It includes helpers for:
+- Determining safe file paths for chat storage.
+- Loading and saving permissions (users and groups).
+- Checking if a user has permission to execute a command.
+- Managing chat history updates.
+- Saving attachments to disk.
+"""
+
 import hashlib
 import json
 import logging

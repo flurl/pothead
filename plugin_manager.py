@@ -1,3 +1,25 @@
+"""
+The `plugin_manager` module is responsible for dynamically loading, initializing,
+and managing plugins for the Pothead application. It provides decorators and
+functions for plugins to register their functionalities, such as actions,
+commands, event handlers, and services.
+
+Plugins are discovered in the 'plugins' directory, and each plugin is expected
+to have a `manifest.toml` file describing its metadata and a `main.py` file
+containing its core logic.
+
+Key functionalities provided by this module:
+- **Plugin Loading:** Scans the 'plugins' directory, reads `manifest.toml` files,
+  and imports `main.py` modules for enabled plugins.
+- **Action Registration:** Allows plugins to register functions that act on
+  incoming Signal messages based on JSONPath expressions and optional filters.
+- **Command Registration:** Enables plugins to define custom commands that users
+  can invoke through chat messages.
+- **Event Handler Registration:** Provides a mechanism for plugins to subscribe
+  to system-wide events (e.g., `POST_STARTUP`, `PRE_SHUTDOWN`, `TIMER`).
+- **Service Registration and Discovery:** Facilitates inter-plugin communication
+  by allowing plugins to expose and consume shared functionalities (services).
+"""
 
 import tomllib
 from importlib.machinery import ModuleSpec

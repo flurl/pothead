@@ -1,3 +1,12 @@
+"""
+This module defines the core data structures and types used throughout the application.
+
+It includes dataclasses for representing Signal messages (`ChatMessage`, `Attachment`,
+`MessageQuote`), configuration structures (`Command`, `Action`), and enumerations
+(`Priority`, `Event`). It also handles parsing logic for converting raw JSON
+data from `signal-cli` into structured objects.
+"""
+
 from dataclasses import dataclass, field
 import json
 from typing import Any, Self, TypeAlias, cast
@@ -14,6 +23,18 @@ Permissions: TypeAlias = dict[str, dict[str, list[str] | dict[str, list[str]]]]
 
 @dataclass
 class Attachment:
+    """
+    Represents a file attachment in a Signal message.
+
+    Attributes:
+        content_type: The MIME type of the attachment.
+        id: The unique identifier of the attachment.
+        size: The size of the attachment in bytes.
+        filename: The original filename of the attachment, if available.
+        width: The width of the image (if applicable).
+        height: The height of the image (if applicable).
+        caption: The caption associated with the attachment.
+    """
     content_type: str
     id: str
     size: int
@@ -24,6 +45,7 @@ class Attachment:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Creates an Attachment instance from a dictionary."""
         return cls(
             content_type=data.get("contentType", "unknown"),
             id=data.get("id", ""),
@@ -37,6 +59,17 @@ class Attachment:
 
 @dataclass
 class MessageQuote:
+    """
+    Represents a quoted message within a Signal message.
+
+    Attributes:
+        id: The timestamp ID of the quoted message.
+        author: The author of the quoted message.
+        author_number: The phone number of the author.
+        author_uuid: The UUID of the author.
+        text: The text content of the quoted message.
+        attachments: A list of attachments in the quoted message.
+    """
     id: int
     author: str
     author_number: str
@@ -46,6 +79,7 @@ class MessageQuote:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Creates a MessageQuote instance from a dictionary."""
         return cls(
             id=data.get("id", 0),
             author=data.get("author", ""),
@@ -59,6 +93,17 @@ class MessageQuote:
 
 @dataclass
 class ChatMessage:
+    """
+    Standardized representation of a chat message.
+
+    Attributes:
+        source: The sender of the message.
+        destination: The recipient of the message.
+        text: The text content of the message.
+        attachments: A list of attachments in the message.
+        quote: The quoted message, if any.
+        group_id: The group ID, if the message is associated with a group.
+    """
     source: str
     destination: str | None = None
     text: str | None = None
@@ -69,6 +114,7 @@ class ChatMessage:
 
     @property
     def chat_id(self) -> str:
+        """Returns the ID of the chat context (group ID or sender)."""
         return self.destination if self.destination else self.source
 
     def __str__(self) -> str:
@@ -87,6 +133,12 @@ class ChatMessage:
 
     @classmethod
     def from_json(cls, data: dict[str, Any] | str) -> Self | None:
+        """
+        Parses a JSON dictionary or string from signal-cli into a ChatMessage object.
+
+        Handles both 'dataMessage' (incoming messages) and 'syncMessage' (messages sent from other devices).
+        Returns None if the data is not a valid message or cannot be parsed.
+        """
         if isinstance(data, str):
             try:
                 data = json.loads(data)
@@ -201,6 +253,15 @@ class Action:
 
 @dataclass
 class Command:
+    """
+    Represents a registered command.
+
+    Attributes:
+        name: The name of the command.
+        handler: The asynchronous function that handles the command.
+        help_text: A description of the command.
+        origin: The origin of the command (e.g., 'sys' or a plugin ID).
+    """
     name: str
     handler: Callable[[str, list[str], str | None],
                       Awaitable[tuple[str, list[str]]]]

@@ -1,3 +1,29 @@
+"""
+This plugin provides a cron-like service for scheduling functions to run at
+specified intervals or times of day. Other plugins can register their functions
+with this service.
+
+It exposes register_cron_job() as service to be consumed by other plugins.
+
+Usage:
+
+In another plugin's main.py:
+from plugin_manager import get_service
+from typing import Callable, Any
+
+async def my_scheduled_task():
+    print("My scheduled task is running!")
+
+def initialize():
+    register_cron_job: Callable[..., Any] | None = get_service("register_cron_job")
+    if register_cron_job:
+        # Schedule to run every 5 minutes
+        register_cron_job(my_scheduled_task, interval=5)
+        # Schedule to run daily at 10:30 AM
+        register_cron_job(my_scheduled_task, time_of_day="10:30")
+
+"""
+
 import logging
 from typing import Callable, Awaitable
 from datetime import date, datetime, time

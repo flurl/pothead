@@ -1,3 +1,23 @@
+"""
+This plugin integrates with the Google Gemini API to provide AI capabilities.
+It allows users to interact with the Gemini model, manage conversation context,
+and synchronize local files with Gemini's File Search Store for Retrieval Augmented Generation (RAG).
+
+Features:
+- **AI Chat:** Send messages to Gemini and receive responses.
+- **Context Management:** Add previous messages or prompts to a temporary context
+  for multi-turn conversations.
+- **File Search Store (RAG):** Synchronize local files (from the bot's file store)
+  with Gemini's File Search Store to enable the AI to retrieve information from
+  these documents.
+
+Configuration:
+- `gemini_api_key`: Your Google Gemini API key.
+- `gemini_model_name`: The name of the Gemini model to use (e.g., "gemini-pro").
+- `system_instruction`: A system-level instruction for the Gemini model.
+- `trigger_words`: Words that trigger the AI to process a message.
+"""
+
 import asyncio
 import logging
 import os

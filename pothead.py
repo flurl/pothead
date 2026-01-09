@@ -1,3 +1,27 @@
+
+"""
+The main entry point for the Pothead application.
+
+This module orchestrates the core lifecycle of the bot, including:
+- Initializing configuration and logging.
+- Loading and initializing plugins via `plugin_manager`.
+- Managing the `signal-cli` subprocess for sending and receiving messages.
+- Processing incoming JSON-RPC messages from `signal-cli`.
+- Dispatching messages to registered Actions (both system-level and plugin-level).
+- Handling user commands and executing them.
+- Managing the main event loop and system events (e.g., startup, shutdown, timer).
+
+Key Components:
+- `main()`: The async entry point that sets up the environment and starts the processing loop.
+- `process_incoming_line()`: Parses raw output from `signal-cli` and routes it.
+- `handle_command()`: A system action that interprets and executes user commands starting with trigger words.
+- `timer_loop()`: A background task that fires the `Event.TIMER` event periodically.
+
+Usage:
+    Run this module directly to start the bot:
+    $ python pothead.py
+"""
+
 from collections.abc import Awaitable, Callable
 from config import settings
 import asyncio
