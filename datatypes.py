@@ -206,3 +206,11 @@ class Command:
                       Awaitable[tuple[str, list[str]]]]
     help_text: str
     origin: str
+
+
+class Event(Enum):
+    """
+    Enum to define the available events
+    """
+    POST_STARTUP = "post_startup"
+    PRE_SHUTDOWN = "pre_shutdown"

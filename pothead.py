@@ -10,10 +10,16 @@ from typing import Any
 from jsonpath_ng.jsonpath import DatumInContext
 
 from commands import COMMANDS
-from datatypes import Action, ChatMessage, MessageQuote, Priority
+from datatypes import Action, ChatMessage, MessageQuote, Priority, Event
 from messaging import set_signal_process, send_signal_message
 from utils import check_permission, update_chat_history
-from plugin_manager import PENDING_REPLIES, PLUGIN_ACTIONS, load_plugins, PLUGIN_COMMANDS
+from plugin_manager import (
+    PENDING_REPLIES,
+    PLUGIN_ACTIONS,
+    load_plugins,
+    PLUGIN_COMMANDS,
+    EVENT_HANDLERS,
+)
 
 
 # --- CONFIGURATION ---
@@ -24,6 +30,17 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+async def fire_event(event: Event) -> None:
+    """Fires an event and runs all registered handlers."""
+    if event in EVENT_HANDLERS:
+        logger.info(f"Firing event: {event}")
+        for handler in EVENT_HANDLERS[event]:
+            try:
+                await handler()
+            except Exception:
+                logger.exception(f"Error in event handler for {event}")
 
 
 async def execute_command(chat_id: str, sender: str, command: str, params: list[str], prompt: str | None = None) -> tuple[str, list[str]]:
@@ -178,11 +195,12 @@ async def main() -> None:
         *cmd,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
-        stderr=sys.stderr  # Print errors to console directly
+        stderr=sys.stderr,  # Print errors to console directly
+        start_new_session=True
     )
 
     set_signal_process(proc)
-
+    await fire_event(Event.POST_STARTUP)
     logger.info("Listening for messages...")
 
     try:
@@ -202,6 +220,7 @@ async def main() -> None:
     except asyncio.CancelledError:
         pass
     finally:
+        await fire_event(Event.PRE_SHUTDOWN)
         if proc.returncode is None:
             proc.terminate()
             await proc.wait()

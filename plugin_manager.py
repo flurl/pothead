@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from types import ModuleType
 from typing import Any
 
-from datatypes import Action, Priority, Command
+from datatypes import Action, Priority, Command, Event
 from config import settings
 
 
@@ -19,6 +19,19 @@ LOADED_PLUGINS: dict[str, dict[str, Any]] = {}
 
 PLUGIN_ACTIONS: list[Action] = []
 PLUGIN_COMMANDS: list[Command] = []
+EVENT_HANDLERS: dict[Event, list[Callable[[], Awaitable[None]]]] = {}
+
+
+def register_event(
+    plugin_id: str,
+    event: Event,
+    handler: Callable[[], Awaitable[None]],
+) -> None:
+    """Decorator to register a plugin event handler."""
+    logger.info(f"Registering event handler for '{event}' from '{plugin_id}'")
+    if event not in EVENT_HANDLERS:
+        EVENT_HANDLERS[event] = []
+    EVENT_HANDLERS[event].append(handler)
 
 
 def register_action(
