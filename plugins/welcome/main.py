@@ -95,6 +95,12 @@ async def send_welcome_message(chat_id: str) -> None:
             await send_signal_group_message(welcome_message, chat_id)
 
 
+@register_action(
+    "welcome",
+    name="Check for group updates",
+    jsonpath='$.params.envelope.syncMessage.sentMessage.groupInfo.type',
+    filter=lambda match: match.value and match.value == "UPDATE",
+)
 async def action_group_update(data: dict[str, Any]) -> bool:
     """
     This is called when a group update is received.
@@ -123,6 +129,8 @@ async def action_group_update(data: dict[str, Any]) -> bool:
     return True
 
 
+@register_command("welcome", "initgroup",
+                  "Stores the current list of group members.")
 async def cmd_initgroup(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
     future: asyncio.Future[Any] = loop.create_future()
@@ -164,17 +172,3 @@ async def cmd_initgroup(chat_id: str, params: list[str], prompt: str | None) -> 
             save_attachment(att, get_group_dir(chat_id), dest_name)
 
     return f"initialized group {chat_id}", []
-
-
-# Register actions for both data messages and sync messages
-
-register_action(
-    "welcome",
-    name="Check for group updates",
-    jsonpath='$.params.envelope.syncMessage.sentMessage.groupInfo.type',
-    filter=lambda match: match.value and match.value == "UPDATE",
-    handler=action_group_update
-)
-
-register_command("welcome", "initgroup", cmd_initgroup,
-                 "Stores the current list of group members.")

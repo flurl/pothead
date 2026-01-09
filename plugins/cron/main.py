@@ -4,7 +4,7 @@ from datetime import date, datetime, time
 from dataclasses import dataclass
 
 from datatypes import Event
-from plugin_manager import register_event, register_service
+from plugin_manager import register_event_handler, register_service
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ class CronJob:
 cron_jobs: list[CronJob] = []
 
 
+@register_service("register_cron_job")
 def register_cron_job(func: Callable[[], Awaitable[None]], interval: int | None = None, time_of_day: str | None = None) -> None:
     """
     Registers a function to be called at a specific interval or time of day.
@@ -37,6 +38,10 @@ def register_cron_job(func: Callable[[], Awaitable[None]], interval: int | None 
     logger.info(f"Registered cron job: {func.__name__}")
 
 
+@register_event_handler(
+    "cron",
+    Event.TIMER,
+)
 async def cron_handler() -> None:
     """
     Handles the cron timer event and runs scheduled jobs.
@@ -61,19 +66,6 @@ async def cron_handler() -> None:
                 job.last_run = now
             except Exception:
                 logger.exception(f"Error in cron job: {job.func.__name__}")
-
-
-"""Registers the cron service."""
-register_service("register_cron_job", register_cron_job)
-
-
-# --- Register Event Handler ---
-
-register_event(
-    "cron",
-    Event.TIMER,
-    cron_handler,
-)
 
 
 # --- Example Usage (for demonstration) ---

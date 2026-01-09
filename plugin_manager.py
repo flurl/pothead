@@ -6,10 +6,15 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from types import ModuleType
-from typing import Any
+from typing import Any, TypeAlias
 
 from datatypes import Action, Priority, Command, Event
 from config import settings
+
+EventHandler: TypeAlias = Callable[[], Awaitable[None]]
+ActionHandler: TypeAlias = Callable[[dict[str, Any]], Awaitable[bool]]
+CommandHandler: TypeAlias = Callable[[
+    str, list[str], str | None], Awaitable[tuple[str, list[str]]]]
 
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -23,12 +28,28 @@ EVENT_HANDLERS: dict[Event, list[Callable[[], Awaitable[None]]]] = {}
 PLUGIN_SERVICES: dict[str, Callable[..., Any]] = {}
 
 
-def register_service(service_name: str, service_function: Callable[..., Any]) -> None:
-    """Registers a function from a plugin to be used by other plugins."""
-    if service_name in PLUGIN_SERVICES:
-        logger.warning(f"Service '{service_name}' is being overwritten.")
-    logger.info(f"Registering service: {service_name}")
-    PLUGIN_SERVICES[service_name] = service_function
+def register_service(service_name: str) -> Callable[..., Any]:
+    """
+    Decorator to register a function as a service available to other plugins.
+
+    Services are stored in a global registry and can be retrieved using `get_service`.
+    This allows plugins to expose functionality to other plugins without direct imports.
+
+    Args:
+        service_name: The unique name of the service. If a service with this name
+                      already exists, a warning is logged and it is overwritten.
+
+    Returns:
+        The decorator function.
+    """
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        if service_name in PLUGIN_SERVICES:
+            logger.warning(f"Service '{service_name}' is being overwritten.")
+        logger.info(f"Registering service: {service_name}")
+        PLUGIN_SERVICES[service_name] = func
+        return func
+
+    return decorator
 
 
 def get_service(service_name: str) -> Callable[..., Any] | None:
@@ -39,44 +60,98 @@ def get_service(service_name: str) -> Callable[..., Any] | None:
     return service
 
 
-def register_event(
+def register_event_handler(
     plugin_id: str,
     event: Event,
-    handler: Callable[[], Awaitable[None]],
-) -> None:
-    """Decorator to register a plugin event handler."""
-    logger.info(f"Registering event handler for '{event}' from '{plugin_id}'")
-    if event not in EVENT_HANDLERS:
-        EVENT_HANDLERS[event] = []
-    EVENT_HANDLERS[event].append(handler)
+) -> Callable[..., Any]:
+    """
+    Decorator to register a function as an event handler.
+
+    Event handlers are called when specific system events occur (e.g., startup, shutdown, timer).
+    Multiple handlers can be registered for the same event.
+
+    Args:
+        plugin_id: The ID of the plugin registering the handler.
+        event: The `Event` enum member representing the event to listen for.
+
+    Returns:
+        The decorator function.
+    """
+    def decorator(func: EventHandler) -> EventHandler:
+        logger.info(
+            f"Registering event handler for '{event}' from '{plugin_id}'")
+        if event not in EVENT_HANDLERS:
+            EVENT_HANDLERS[event] = []
+        EVENT_HANDLERS[event].append(func)
+        return func
+
+    return decorator
 
 
 def register_action(
     plugin_id: str,
     name: str,
     jsonpath: str,
-    handler: Callable[[dict[str, Any]], Awaitable[bool]],
     priority: Priority = Priority.NORMAL,
-    filter: Callable[[Any], bool] | None = None,
-) -> None:
-    """Decorator to register a plugin action."""
-    logger.info(f"Registering plugin action '{name}' from '{plugin_id}'")
-    action = Action(name=name, jsonpath=jsonpath, handler=handler,
-                    priority=priority, filter=filter, origin=f"plugin:{plugin_id}")
-    PLUGIN_ACTIONS.append(action)
+    filter: Callable[[Any], bool] | None = None
+) -> Callable[..., Any]:
+    """
+    Decorator to register a function as an action handler for incoming messages.
+
+    Actions are evaluated against incoming JSON messages from signal-cli. If the
+    `jsonpath` matches and the optional `filter` returns True, the decorated function
+    is executed.
+
+    Args:
+        plugin_id: The ID of the plugin registering the action.
+        name: A descriptive name for the action (used in logging).
+        jsonpath: A JSONPath string to locate data within the message envelope.
+                  If the path exists, the action is considered a match (unless filtered).
+        priority: The execution priority. Higher priority actions run first.
+                  Defaults to `Priority.NORMAL`.
+        filter: An optional callable that takes the value found at `jsonpath` and
+                returns `True` if the action should run, or `False` otherwise.
+
+    Returns:
+        The decorator function.
+    """
+    def decorator(func: ActionHandler) -> ActionHandler:
+        logger.info(f"Registering plugin action '{name}' from '{plugin_id}'")
+        action = Action(name=name, jsonpath=jsonpath, handler=func,
+                        priority=priority, filter=filter, origin=f"plugin:{plugin_id}")
+        PLUGIN_ACTIONS.append(action)
+        return func
+
+    return decorator
 
 
 def register_command(
     plugin_id: str,
     name: str,
-    handler: Callable[[str, list[str], str | None], Awaitable[tuple[str, list[str]]]],
     help_text: str,
-) -> None:
-    """Decorator to register a plugin command."""
-    logger.info(f"Registering plugin command '{name}' from '{plugin_id}'")
-    command = Command(name=name, handler=handler,
-                      help_text=help_text, origin=f"plugin:{plugin_id}")
-    PLUGIN_COMMANDS.append(command)
+) -> Callable[..., Any]:
+    """
+    Decorator to register a function as a command handler.
+
+    Commands are triggered by messages starting with specific prefixes (e.g., "!TRIGGER#").
+    The decorated function is called when the command name matches.
+
+    Args:
+        plugin_id: The ID of the plugin registering the command.
+        name: The name of the command (e.g., "ping" for "!ping").
+        help_text: A description of what the command does, shown in help listings.
+
+    Returns:
+        The decorator function.
+    """
+    def decorator(func: CommandHandler) -> CommandHandler:
+        logger.info(f"Registering plugin command '{name}' from '{plugin_id}'")
+        command = Command(name=name, handler=func,
+                          help_text=help_text, origin=f"plugin:{plugin_id}")
+        PLUGIN_COMMANDS.append(command)
+        return func
+
+    return decorator
 
 
 def load_plugins() -> None:

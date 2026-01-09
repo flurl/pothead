@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from datatypes import ChatMessage
 from messaging import send_signal_message
@@ -13,6 +13,16 @@ async def log_echo_response(response_data: dict[str, Any]) -> None:
     logger.info(f"Received confirmation for echo: {response_data}")
 
 
+@register_action(
+    "echo",
+    name="Echo Data Message",
+    jsonpath="$.params.envelope.dataMessage",
+)
+@register_action(
+    "echo",
+    name="Echo Sync Message",
+    jsonpath="$.params.envelope.syncMessage.sentMessage",
+)
 async def echo_handler(data: dict[str, Any]) -> bool:
     """
     Handles echoing a message back to the sender from either a dataMessage or a syncMessage.
@@ -33,6 +43,7 @@ async def echo_handler(data: dict[str, Any]) -> bool:
     return True
 
 
+@register_command("echo", "ping", "Responds with Pong!")
 async def cmd_ping(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     """Responds with Pong!"""
     return "Pong!", []
@@ -46,7 +57,8 @@ async def heartbeat() -> None:
 def initialize() -> None:
     """Initializes the plugin and schedules the heartbeat."""
     logger.info("Initializing echo plugin and scheduling heartbeat.")
-    register_cron_job = get_service("register_cron_job")
+    register_cron_job: Callable[..., Any] | None = get_service(
+        "register_cron_job")
     if register_cron_job:
         # Run every minute
         register_cron_job(heartbeat, interval=1)
@@ -54,20 +66,3 @@ def initialize() -> None:
     else:
         logger.warning(
             "Could not schedule heartbeat, 'register_cron_job' service not found.")
-
-
-# Register actions for both data messages and sync messages
-register_action(
-    "echo",
-    name="Echo Data Message",
-    jsonpath="$.params.envelope.dataMessage",
-    handler=echo_handler
-)
-register_action(
-    "echo",
-    name="Echo Sync Message",
-    jsonpath="$.params.envelope.syncMessage.sentMessage",
-    handler=echo_handler
-)
-
-register_command("echo", "ping", cmd_ping, "Responds with Pong!")

@@ -123,6 +123,22 @@ class GeminiProvider:
 gemini = GeminiProvider(api_key=settings.gemini_api_key)
 
 
+@register_action(
+    "gemini",
+    name="Handle Gemini in Sync Message",
+    jsonpath="$.params.envelope.syncMessage.sentMessage.message",
+    filter=lambda match: match.value and match.value.strip(
+    ).startswith(tuple(settings.trigger_words)),
+    priority=Priority.HIGH,
+)
+@register_action(
+    "gemini",
+    name="Handle Gemini in Data Message",
+    jsonpath="$.params.envelope.dataMessage.message",
+    filter=lambda match: match.value and match.value.strip(
+    ).startswith(tuple(settings.trigger_words)),
+    priority=Priority.HIGH,
+)
 async def action_send_to_gemini(data: dict[str, Any]) -> bool:
     """Handles AI prompts."""
     # ctx: MessageContext | None = extract_message_context(data)
@@ -178,6 +194,8 @@ async def action_send_to_gemini(data: dict[str, Any]) -> bool:
     return True
 
 
+@register_command("gemini", "addctx",
+                  "Adds the current prompt or history entries (by index) to the context for the next AI response.\n    Params: [<index1>,<index2>,...]")
 async def cmd_add_ctx(chat_id: str, params: list[str], prompt: str | None = None) -> tuple[str, list[str]]:
     """Saves prompt and history entries as context for the next Gemini call."""
     context: list[str] = gemini.get_chat_context(chat_id)
@@ -205,6 +223,8 @@ async def cmd_add_ctx(chat_id: str, params: list[str], prompt: str | None = None
     return f"💾 Context saved ({saved_count} items). Will be used in next call.", []
 
 
+@register_command("gemini", "lsctx",
+                  "Lists the currently active context items.")
 async def cmd_ls_ctx(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     """Lists the currently saved context for the chat."""
     context: list[str] = gemini.get_chat_context(chat_id)
@@ -223,6 +243,8 @@ async def cmd_ls_ctx(chat_id: str, params: list[str], prompt: str | None) -> tup
     return "\n".join(response_lines), []
 
 
+@register_command("gemini", "clrctx",
+                  "Clears the current context.")
 async def cmd_clear_ctx(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     """Deletes all context for the current chat."""
     context: list[str] = gemini.get_chat_context(chat_id)
@@ -232,6 +254,8 @@ async def cmd_clear_ctx(chat_id: str, params: list[str], prompt: str | None) -> 
     return "🗑️ Context cleared.", []
 
 
+@register_command("gemini", "lsfilestore",
+                  "Lists the content of the Gemini File Search Store.")
 async def cmd_ls_file_store(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     response_lines: list[str] = [
         f"📂 Gemini's File Store for chat '{chat_id}':"]
@@ -270,6 +294,8 @@ async def cmd_ls_file_store(chat_id: str, params: list[str], prompt: str | None)
     return "\n".join(response_lines), []
 
 
+@register_command("gemini", "syncstore",
+                  "Updates the Gemini File Search Store.")
 async def cmd_sync_store(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     store: types.FileSearchStore | None = gemini.get_chat_store(chat_id)
     if not store or not store.name:
@@ -313,32 +339,3 @@ async def cmd_sync_store(chat_id: str, params: list[str], prompt: str | None) ->
         return f"❌ Sync error: {e}", []
 
     return f"🔄 Synced {uploaded_count} files to Gemini Store.", []
-
-register_command("gemini", "addctx", cmd_add_ctx,
-                 "Adds the current prompt or history entries (by index) to the context for the next AI response.\n    Params: [<index1>,<index2>,...]")
-register_command("gemini", "lsctx", cmd_ls_ctx,
-                 "Lists the currently active context items.")
-register_command("gemini", "clrctx", cmd_clear_ctx,
-                 "Clears the current context.")
-register_command("gemini", "lsfilestore", cmd_ls_file_store,
-                 "Lists the content of the Gemini File Search Store.")
-register_command("gemini", "syncstore", cmd_sync_store,
-                 "Updates the Gemini File Search Store.")
-register_action(
-    "gemini",
-    name="Handle Gemini in Sync Message",
-    jsonpath="$.params.envelope.syncMessage.sentMessage.message",
-    filter=lambda match: match.value and match.value.strip(
-        ).startswith(tuple(settings.trigger_words)),  # nopep8
-    handler=action_send_to_gemini,
-    priority=Priority.HIGH,
-)
-register_action(
-    "gemini",
-    name="Handle Gemini in Data Message",
-    jsonpath="$.params.envelope.dataMessage.message",
-    filter=lambda match: match.value and match.value.strip(
-        ).startswith(tuple(settings.trigger_words)),  # nopep8
-    handler=action_send_to_gemini,
-    priority=Priority.HIGH,
-)
