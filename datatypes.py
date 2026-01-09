@@ -214,3 +214,4 @@ class Event(Enum):
     """
     POST_STARTUP = "post_startup"
     PRE_SHUTDOWN = "pre_shutdown"
+    TIMER = "timer"

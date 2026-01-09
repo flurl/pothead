@@ -43,6 +43,13 @@ async def fire_event(event: Event) -> None:
                 logger.exception(f"Error in event handler for {event}")
 
 
+async def timer_loop() -> None:
+    """Emits a timer event every minute."""
+    while True:
+        await asyncio.sleep(60)
+        await fire_event(Event.TIMER)
+
+
 async def execute_command(chat_id: str, sender: str, command: str, params: list[str], prompt: str | None = None) -> tuple[str, list[str]]:
     command = command.lower()
     """Executes the parsed command."""
@@ -200,6 +207,7 @@ async def main() -> None:
     )
 
     set_signal_process(proc)
+    timer_task: asyncio.Task[None] = asyncio.create_task(timer_loop())
     await fire_event(Event.POST_STARTUP)
     logger.info("Listening for messages...")
 
@@ -220,6 +228,7 @@ async def main() -> None:
     except asyncio.CancelledError:
         pass
     finally:
+        timer_task.cancel()
         await fire_event(Event.PRE_SHUTDOWN)
         if proc.returncode is None:
             proc.terminate()

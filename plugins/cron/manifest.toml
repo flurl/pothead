@@ -1,0 +1,5 @@
+id = "cron"
+name = "Cron Plugin"
+description = "A plugin to schedule functions to be called at specific times."
+version = "0.1.0"
+author = "Pothead-Dev"
