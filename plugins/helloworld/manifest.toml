@@ -1,5 +1,0 @@
-id = "helloworld"
-name = "Hello World Plugin"
-description = "A plugin that sends a hello and goodbye message."
-version = "0.1.0"
-author = "Pothead-Dev"

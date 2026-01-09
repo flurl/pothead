@@ -1,11 +1,14 @@
 import logging
 from typing import Any, Callable
 
-from datatypes import ChatMessage
-from messaging import send_signal_message
-from plugin_manager import register_action, register_command, get_service
+from config import settings
+from datatypes import ChatMessage, Event
+from messaging import send_signal_direct_message, send_signal_message
+from plugin_manager import register_action, register_command, get_service, register_event_handler
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+plugin_id: str = "echo"
 
 
 async def log_echo_response(response_data: dict[str, Any]) -> None:
@@ -14,12 +17,12 @@ async def log_echo_response(response_data: dict[str, Any]) -> None:
 
 
 @register_action(
-    "echo",
+    plugin_id,
     name="Echo Data Message",
     jsonpath="$.params.envelope.dataMessage",
 )
 @register_action(
-    "echo",
+    plugin_id,
     name="Echo Sync Message",
     jsonpath="$.params.envelope.syncMessage.sentMessage",
 )
@@ -43,10 +46,28 @@ async def echo_handler(data: dict[str, Any]) -> bool:
     return True
 
 
-@register_command("echo", "ping", "Responds with Pong!")
+@register_command(plugin_id, "ping", "Responds with Pong!")
 async def cmd_ping(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     """Responds with Pong!"""
     return "Pong!", []
+
+
+@register_event_handler(plugin_id, Event.POST_STARTUP)
+async def on_startup() -> None:
+    """Sends a startup message to the superuser."""
+    await send_signal_direct_message(
+        message="Hello from pothead!",
+        recipient=settings.superuser
+    )
+
+
+@register_event_handler(plugin_id, Event.PRE_SHUTDOWN)
+async def on_shutdown() -> None:
+    """Sends a shutdown message to the superuser."""
+    await send_signal_direct_message(
+        message="Goodbye from pothead!",
+        recipient=settings.superuser
+    )
 
 
 async def heartbeat() -> None:
