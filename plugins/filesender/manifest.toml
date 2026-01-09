@@ -1,0 +1,5 @@
+id = "filesender"
+name = "File Sender Plugin"
+description = "Sends the content of a text file at a specified time."
+version = "0.1.0"
+author = "Gemini"

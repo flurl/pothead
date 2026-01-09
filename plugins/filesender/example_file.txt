@@ -1,0 +1,3 @@
+Hello from the filesender plugin!
+This is an example file that will be sent by the pothead bot.
+You can change the content of this file and it will be reflected in the message sent.
