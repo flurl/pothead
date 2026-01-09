@@ -347,8 +347,15 @@ async def cmd_help(chat_id: str, params: list[str], prompt: str | None) -> tuple
     return "\n".join(response_lines), []
 
 
+async def cmd_showchatid(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Shows the current chat ID."""
+    return f"Current chat ID: {chat_id}", []
+
+
 COMMANDS: list[Command] = [
     Command("help", cmd_help, "Lists all available commands.", "sys"),
+    Command("showchatid", cmd_showchatid,
+            "Shows the current chat ID.", "sys"),
     Command("save", cmd_save,
             "Saves the current prompt, history entries (by index), and attachments to the store.\n    Params: [<index1>,<index2>,...]", "sys"),
     Command("lsstore", cmd_ls_store,
