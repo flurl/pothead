@@ -130,7 +130,7 @@ async def action_group_update(data: dict[str, Any]) -> bool:
 
 
 @register_command("welcome", "initgroup",
-                  "Stores the current list of group members.")
+                  "Stores the current list of group members and optionally saves an attachment as welcome message.")
 async def cmd_initgroup(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
     future: asyncio.Future[Any] = loop.create_future()
