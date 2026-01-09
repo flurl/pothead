@@ -4,7 +4,7 @@ from datetime import date, datetime, time
 from dataclasses import dataclass
 
 from datatypes import Event
-from plugin_manager import register_event
+from plugin_manager import register_event, register_service
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -61,6 +61,10 @@ async def cron_handler() -> None:
                 job.last_run = now
             except Exception:
                 logger.exception(f"Error in cron job: {job.func.__name__}")
+
+
+"""Registers the cron service."""
+register_service("register_cron_job", register_cron_job)
 
 
 # --- Register Event Handler ---

@@ -20,6 +20,23 @@ LOADED_PLUGINS: dict[str, dict[str, Any]] = {}
 PLUGIN_ACTIONS: list[Action] = []
 PLUGIN_COMMANDS: list[Command] = []
 EVENT_HANDLERS: dict[Event, list[Callable[[], Awaitable[None]]]] = {}
+PLUGIN_SERVICES: dict[str, Callable[..., Any]] = {}
+
+
+def register_service(service_name: str, service_function: Callable[..., Any]) -> None:
+    """Registers a function from a plugin to be used by other plugins."""
+    if service_name in PLUGIN_SERVICES:
+        logger.warning(f"Service '{service_name}' is being overwritten.")
+    logger.info(f"Registering service: {service_name}")
+    PLUGIN_SERVICES[service_name] = service_function
+
+
+def get_service(service_name: str) -> Callable[..., Any] | None:
+    """Gets a service function registered by a plugin."""
+    service: Callable[..., Any] | None = PLUGIN_SERVICES.get(service_name)
+    if not service:
+        logger.warning(f"Service '{service_name}' not found.")
+    return service
 
 
 def register_event(
@@ -65,16 +82,18 @@ def register_command(
 def load_plugins() -> None:
     """Loads plugins from the 'plugins' directory by reading a manifest.toml file."""
     plugins_dir = "plugins"
+    loaded_modules: dict[str, ModuleType] = {}
+
     if not os.path.isdir(plugins_dir):
         logger.warning(f"Plugin directory '{plugins_dir}' not found.")
         return
 
+    # Phase 1: Load plugin modules
     for plugin_name in os.listdir(plugins_dir):
         plugin_dir: str = os.path.join(plugins_dir, plugin_name)
         if not os.path.isdir(plugin_dir):
             continue
 
-        # 1. Read and validate manifest
         manifest_path: str = os.path.join(plugin_dir, "manifest.toml")
         if not os.path.isfile(manifest_path):
             logger.debug(f"No manifest.toml in {plugin_dir}, skipping.")
@@ -93,7 +112,6 @@ def load_plugins() -> None:
                 f"Plugin {plugin_name} MANIFEST has no 'id'. Skipping.")
             continue
 
-        # only load if enabled in settings
         if plugin_id not in settings.plugins:
             continue
 
@@ -102,7 +120,6 @@ def load_plugins() -> None:
                 f"Duplicate plugin ID '{plugin_id}'. Skipping {plugin_name}.")
             continue
 
-        # 2. Load the plugin module
         main_file_path: str = os.path.join(plugin_dir, "main.py")
         if not os.path.isfile(main_file_path):
             logger.error(
@@ -121,10 +138,21 @@ def load_plugins() -> None:
             spec.loader.exec_module(module)
 
             LOADED_PLUGINS[plugin_id] = manifest
+            loaded_modules[plugin_id] = module
             logger.info(
-                f"Successfully loaded plugin: {manifest.get('name', plugin_id)} "
+                f"Loaded module for plugin: {manifest.get('name', plugin_id)} "
                 f"v{manifest.get('version', 'N/A')}"
             )
         except Exception as e:
             logger.error(
                 f"Failed to load plugin module for {plugin_name}: {e}", exc_info=True)
+
+    # Phase 2: Initialize plugins
+    for plugin_id, module in loaded_modules.items():
+        if hasattr(module, "initialize"):
+            logger.info(f"Initializing plugin: {plugin_id}")
+            try:
+                module.initialize()
+            except Exception as e:
+                logger.error(
+                    f"Failed to initialize plugin {plugin_id}: {e}", exc_info=True)

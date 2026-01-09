@@ -3,7 +3,7 @@ from typing import Any
 
 from datatypes import ChatMessage
 from messaging import send_signal_message
-from plugin_manager import register_action, register_command
+from plugin_manager import register_action, register_command, get_service
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -36,6 +36,24 @@ async def echo_handler(data: dict[str, Any]) -> bool:
 async def cmd_ping(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     """Responds with Pong!"""
     return "Pong!", []
+
+
+async def heartbeat() -> None:
+    """A simple periodic task to demonstrate cron service usage."""
+    logger.info("Echo plugin heartbeat!")
+
+
+def initialize() -> None:
+    """Initializes the plugin and schedules the heartbeat."""
+    logger.info("Initializing echo plugin and scheduling heartbeat.")
+    register_cron_job = get_service("register_cron_job")
+    if register_cron_job:
+        # Run every minute
+        register_cron_job(heartbeat, interval=1)
+        logger.info("Successfully scheduled echo heartbeat.")
+    else:
+        logger.warning(
+            "Could not schedule heartbeat, 'register_cron_job' service not found.")
 
 
 # Register actions for both data messages and sync messages
