@@ -162,7 +162,9 @@ class ChatMessage:
             text: str | None = data_message.get("message")
             attachments: list[Attachment] = [Attachment.from_dict(
                 a) for a in data_message.get("attachments", [])]
-            quote: MessageQuote | None = data_message.get("quote", None)
+            raw_quote: dict[str, Any] | None = data_message.get("quote")
+            quote: MessageQuote | None = MessageQuote.from_dict(
+                raw_quote) if raw_quote else None
         elif "syncMessage" in envelope:
             sent_message: dict[str, Any] = envelope.get(
                 "syncMessage", {}).get("sentMessage", {})
