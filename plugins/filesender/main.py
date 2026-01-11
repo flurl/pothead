@@ -12,9 +12,6 @@ import os
 from typing import Callable, Any
 import mimetypes
 
-from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, TomlConfigSettingsSource, SettingsConfigDict
-from pydantic import BaseModel
-
 from datatypes import ChatMessage
 from messaging import send_signal_message
 from plugin_manager import get_service
@@ -22,54 +19,21 @@ from config import settings
 
 logger: logging.Logger = logging.getLogger(__name__)
 
+plugin_settings: dict[str, Any] = settings.plugins.get("filesender", {})
+max_length: int = plugin_settings.get("max_length", 1000)
+filesender_configs: list[dict[str, Any]
+                         ] = plugin_settings.get("filesender", [])
 
-class FileSenderSettings(BaseModel):
-    file_path: str
-    destination: str | None = None
-    group_id: str | None = None
-    time_of_day: str | None = None
-    interval: int | None = None
-
-
-class PluginSettings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file_encoding="utf-8",
-        env_prefix="FILESENDER_",
-        case_sensitive=False,
-    )
-    max_length: int = 1000
-    filesender: list[FileSenderSettings] = []
-
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        config_path = os.path.join(os.path.dirname(__file__), "config.toml")
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(
-                f"Configuration file not found: {config_path}")
-        return (env_settings, dotenv_settings, TomlConfigSettingsSource(settings_cls, toml_file=config_path),)
+JOBS: list[dict[str, Any]] = []
 
 
-plugin_settings = PluginSettings()
-
-
-class FileSenderJob(BaseModel):
-    settings: FileSenderSettings
-    job_id: str
-
-
-JOBS: list[FileSenderJob] = []
-
-
-async def send_file_content(send_config: FileSenderSettings) -> None:
+async def send_file_content(send_config: dict[str, Any]) -> None:
     """Reads a file, checks constraints, and sends its content."""
-    file_path = send_config.file_path
+    file_path = send_config.get("file_path")
+    if not file_path:
+        logger.error("File sender config missing 'file_path'")
+        return
+
     if not os.path.isabs(file_path):
         file_path = os.path.join(os.path.dirname(__file__), file_path)
 
@@ -93,22 +57,25 @@ async def send_file_content(send_config: FileSenderSettings) -> None:
         logger.error(f"Could not read file {file_path}: {e}")
         return
 
-    if len(content) > plugin_settings.max_length:
+    if len(content) > max_length:
         logger.warning(
-            f"File content exceeds max_length of {plugin_settings.max_length}. Truncating.")
-        content = content[:plugin_settings.max_length]
+            f"File content exceeds max_length of {max_length}. Truncating.")
+        content = content[:max_length]
 
     if not content:
         logger.warning(
             f"File {file_path} is empty. Nothing to send.")
         return
 
+    destination = send_config.get("destination")
+    group_id = send_config.get("group_id")
+
     logger.info(
-        f"Sending file content of {file_path} to { 'group ' + send_config.group_id if send_config.group_id else 'user ' + str(send_config.destination)}")
+        f"Sending file content of {file_path} to { 'group ' + group_id if group_id else 'user ' + str(destination)}")
     outgoing_message = ChatMessage(
         "filesender",
-        destination=send_config.destination,
-        group_id=send_config.group_id,
+        destination=destination,
+        group_id=group_id,
         text=content,
     )
     await send_signal_message(outgoing_message)
@@ -118,7 +85,7 @@ def initialize() -> None:
     """Initializes the plugin and schedules the file sending jobs."""
     logger.info("Initializing filesender plugin.")
 
-    if not plugin_settings.filesender:
+    if not filesender_configs:
         logger.warning(
             "No filesender configurations found. The plugin will do nothing.")
         return
@@ -130,23 +97,23 @@ def initialize() -> None:
             "Could not get 'register_cron_job' service. File sending will not be scheduled.")
         return
 
-    for i, config in enumerate(plugin_settings.filesender):
+    for i, config in enumerate(filesender_configs):
         job_id: str = f"filesender_{i}"
         logger.info(
-            f"Scheduling job {job_id} for file '{config.file_path}' with { 'interval ' + str(config.interval) if config.interval else 'time of day ' + str(config.time_of_day)}")
+            f"Scheduling job {job_id} for file '{config.get('file_path')}' with { 'interval ' + str(config.get('interval')) if config.get('interval') else 'time of day ' + str(config.get('time_of_day'))}")
 
-        if not config.destination and not config.group_id:
+        if not config.get("destination") and not config.get("group_id"):
             logger.info(
                 f"No destination or group_id specified. Messages will be send to superuser {settings.superuser}")
-            config.destination = settings.superuser
+            config["destination"] = settings.superuser
 
         # functools.partial is not available, so we use a lambda
         # to capture the current 'config' for the cron job.
         register_cron_job(
-            lambda c=config: send_file_content(c),
-            interval=config.interval,
-            time_of_day=config.time_of_day
+            lambda c=config: send_file_content(c),  # type: ignore
+            interval=config.get("interval"),
+            time_of_day=config.get("time_of_day")
         )
-        JOBS.append(FileSenderJob(settings=config, job_id=job_id))
+        JOBS.append({"settings": config, "job_id": job_id})
 
     logger.info(f"Successfully scheduled {len(JOBS)} file sending job(s).")

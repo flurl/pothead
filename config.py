@@ -1,4 +1,5 @@
 import os
+from typing import Any
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
 
 
@@ -27,7 +28,8 @@ class Settings(BaseSettings):
     history_max_length: int = 30
     log_level: str = "INFO"
     system_instruction: str = "You are a helpful assistant."
-    plugins: list[str] = []
+    enabled_plugins: list[str] = []
+    plugins: dict[str, Any] = {}
 
     @classmethod
     def settings_customise_sources(
