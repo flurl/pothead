@@ -23,12 +23,27 @@ async def test_handle_command(mock_send_signal_message):
     Tests that the handle_command function correctly processes a command
     and calls send_signal_message with the echoed text.
     """
+    import sys
+    import plugin_manager
+    # Reset plugin state to ensure a clean load
+    plugin_manager.LOADED_PLUGINS.clear()
+    plugin_manager.PLUGIN_COMMANDS.clear()
+    plugin_manager.PLUGIN_ACTIONS.clear()
+    plugin_manager.EVENT_HANDLERS.clear()
+    plugin_manager.PLUGIN_SERVICES.clear()
+    COMMANDS[:] = [c for c in COMMANDS if c.origin == 'sys']
+    # Unload plugin modules that might have been loaded by other tests
+    modules_to_unload = [m for m in sys.modules if m.startswith('plugins.')]
+    for m in modules_to_unload:
+        del sys.modules[m]
+
     # Manually load plugins to populate the command list
     load_plugins()
-    # It's better not to modify the global list directly, but for this test it's okay.
-    # A cleaner way would be to use a fixture to manage this.
-    if not any(c.name == 'ping' for c in COMMANDS):
-        COMMANDS.extend(PLUGIN_COMMANDS)
+
+    from pothead import ACTIONS
+    ACTIONS.extend(plugin_manager.PLUGIN_ACTIONS)
+    COMMANDS.extend(plugin_manager.PLUGIN_COMMANDS)
+
 
     # Sample incoming message data
     incoming_data = {
@@ -38,7 +53,7 @@ async def test_handle_command(mock_send_signal_message):
                 "sourceDevice": 1,
                 "timestamp": 1678886400000,
                 "dataMessage": {
-                    "message": "!pot #ping",
+                    "message": "!pot#ping",
                     "timestamp": 1678886400000,
                     "groupInfo": {
                         "groupId": "group123"
@@ -49,7 +64,7 @@ async def test_handle_command(mock_send_signal_message):
     }
 
     # Call the handler
-    await handle_command(incoming_data)
+    await process_incoming_line(json.dumps(incoming_data))
 
     # Assert that send_signal_message was called
     mock_send_signal_message.assert_called_once()
@@ -153,8 +168,10 @@ async def test_handle_command_with_quote(mock_send_signal_message):
 
     # Load plugins to get the 'echo' command
     load_plugins()
-    if not any(c.name == 'echo' for c in COMMANDS):
-        COMMANDS.extend(PLUGIN_COMMANDS)
+
+    from pothead import ACTIONS
+    ACTIONS.extend(plugin_manager.PLUGIN_ACTIONS)
+    COMMANDS.extend(plugin_manager.PLUGIN_COMMANDS)
 
     # Sample incoming message with a quote
     incoming_data = {
@@ -162,7 +179,7 @@ async def test_handle_command_with_quote(mock_send_signal_message):
             "envelope": {
                 "source": "test",
                 "dataMessage": {
-                    "message": "!pot #echo",
+                    "message": "!pot#echo",
                     "timestamp": 1678886400000,
                     "groupInfo": {
                         "groupId": "group123"
@@ -178,7 +195,7 @@ async def test_handle_command_with_quote(mock_send_signal_message):
     }
 
     # Call the handler
-    await handle_command(incoming_data)
+    await process_incoming_line(json.dumps(incoming_data))
 
     # Assert that send_signal_message was called
     mock_send_signal_message.assert_called_once()
