@@ -180,7 +180,9 @@ class ChatMessage:
             text: str | None = sent_message.get("message")
             attachments: list[Attachment] = [Attachment.from_dict(
                 a) for a in sent_message.get("attachments", [])]
-            quote: MessageQuote | None = sent_message.get("quote", None)
+            raw_quote: dict[str, Any] | None = sent_message.get("quote")
+            quote: MessageQuote | None = MessageQuote.from_dict(
+                raw_quote) if raw_quote else None
         else:
             return None
 
