@@ -1,5 +1,6 @@
 
 import asyncio
+import json
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from pothead import (
@@ -12,7 +13,7 @@ from pothead import (
     process_incoming_line,
     main,
 )
-from datatypes import ChatMessage, Event, Command
+from datatypes import ChatMessage, Event, Command, Action
 from plugin_manager import load_plugins, PLUGIN_COMMANDS
 
 @pytest.mark.asyncio
@@ -126,3 +127,110 @@ async def test_main(mock_create_subprocess_exec):
 
     # Assert that signal-cli was started
     mock_create_subprocess_exec.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch('pothead.send_signal_message', new_callable=AsyncMock)
+async def test_handle_command_with_quote(mock_send_signal_message):
+    """
+    Tests that handle_command correctly processes a command with a quote,
+    using the quoted text as the prompt for the command.
+    """
+    import sys
+    import plugin_manager
+    # Reset plugin state to ensure a clean load
+    plugin_manager.LOADED_PLUGINS.clear()
+    plugin_manager.PLUGIN_COMMANDS.clear()
+    plugin_manager.PLUGIN_ACTIONS.clear()
+    plugin_manager.EVENT_HANDLERS.clear()
+    plugin_manager.PLUGIN_SERVICES.clear()
+    COMMANDS[:] = [c for c in COMMANDS if c.origin == 'sys']
+
+    # Unload plugin modules that might have been loaded by other tests
+    modules_to_unload = [m for m in sys.modules if m.startswith('plugins.')]
+    for m in modules_to_unload:
+        del sys.modules[m]
+
+    # Load plugins to get the 'echo' command
+    load_plugins()
+    if not any(c.name == 'echo' for c in COMMANDS):
+        COMMANDS.extend(PLUGIN_COMMANDS)
+
+    # Sample incoming message with a quote
+    incoming_data = {
+        "params": {
+            "envelope": {
+                "source": "test",
+                "dataMessage": {
+                    "message": "!pot #echo",
+                    "timestamp": 1678886400000,
+                    "groupInfo": {
+                        "groupId": "group123"
+                    },
+                    "quote": {
+                        "id": 1678886300000,
+                        "author": "+123456789",
+                        "text": "This is quoted text."
+                    }
+                }
+            }
+        }
+    }
+
+    # Call the handler
+    await handle_command(incoming_data)
+
+    # Assert that send_signal_message was called
+    mock_send_signal_message.assert_called_once()
+
+    # Check that the response text is the quoted text, which the 'echo' command does
+    call_args, _ = mock_send_signal_message.call_args
+    sent_message = call_args[0]
+
+    assert sent_message.text == "This is quoted text."
+
+
+@pytest.mark.asyncio
+async def test_process_incoming_line_calls_correct_action():
+    """
+    Tests that process_incoming_line correctly identifies and executes the appropriate action
+    based on the incoming data.
+    """
+    # Define two mock actions
+    mock_action_handler_1 = AsyncMock(return_value=True)
+    action1 = Action(
+        name="action1",
+        jsonpath="$.params.envelope.dataMessage.message",
+        handler=mock_action_handler_1,
+        origin="test",
+        filter=lambda match: match.value == "trigger1"
+    )
+
+    mock_action_handler_2 = AsyncMock(return_value=True)
+    action2 = Action(
+        name="action2",
+        jsonpath="$.params.envelope.dataMessage.message",
+        handler=mock_action_handler_2,
+        origin="test",
+        filter=lambda match: match.value == "trigger2"
+    )
+
+    incoming_data_for_action1 = {
+        "params": {
+            "envelope": {
+                "source": "test",
+                "dataMessage": {
+                    "message": "trigger1",
+                }
+            }
+        }
+    }
+
+    # Use patch to temporarily set the ACTIONS list for this test
+    with patch('pothead.ACTIONS', [action1, action2]):
+        # Process a line that should trigger action1
+        await process_incoming_line(json.dumps(incoming_data_for_action1))
+
+        # Assert that only action1's handler was called
+        mock_action_handler_1.assert_awaited_once()
+        mock_action_handler_2.assert_not_awaited()

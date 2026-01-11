@@ -162,6 +162,12 @@ def test_save_attachment():
         assert dest_file and os.path.exists(dest_file)
         os.remove(dest_file)
 
+        # Test with provided filename
+        dest_file = save_attachment(att, dest_dir, filename="new_name.txt")
+        assert dest_file and os.path.exists(dest_file)
+        assert os.path.basename(dest_file) == "new_name.txt"
+        os.remove(dest_file)
+
         shutil.rmtree(signal_attachments_path)
 
     shutil.rmtree(dest_dir)

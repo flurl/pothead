@@ -61,6 +61,12 @@ async def cmd_ping(chat_id: str, params: list[str], prompt: str | None) -> tuple
     return "Pong!", []
 
 
+@register_command(plugin_id, "echo", "Responds with the prompt!")
+async def cmd_echo(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Responds with the prompt!"""
+    return prompt if prompt else "", []
+
+
 @register_event_handler(plugin_id, Event.POST_STARTUP)
 async def on_startup() -> None:
     """Sends a startup message to the superuser."""
