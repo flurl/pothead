@@ -209,25 +209,13 @@ def load_plugins() -> None:
                 f"Plugin {plugin_name} MANIFEST has no 'id'. Skipping.")
             continue
 
-        if plugin_id not in settings.enabled_plugins:
+        if plugin_id not in settings.plugins:
             continue
 
         if plugin_id in LOADED_PLUGINS:
             logger.error(
                 f"Duplicate plugin ID '{plugin_id}'. Skipping {plugin_name}.")
             continue
-
-        # Load plugin config if it exists
-        config_path: str = os.path.join(plugin_dir, "config.toml")
-        if os.path.isfile(config_path):
-            logger.info(f"Loading config for plugin: {plugin_id}")
-            with open(config_path, "rb") as f:
-                try:
-                    plugin_config: dict[str, Any] = tomllib.load(f)
-                    settings.plugins[plugin_id] = plugin_config
-                except tomllib.TOMLDecodeError:
-                    logger.exception(
-                        f"Failed to load config for plugin: {plugin_id}")
 
         main_file_path: str = os.path.join(plugin_dir, "main.py")
         if not os.path.isfile(main_file_path):
