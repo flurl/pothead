@@ -8,16 +8,21 @@ It includes:
 """
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from config import settings
 from datatypes import ChatMessage, Event
 from messaging import send_signal_direct_message, send_signal_message
-from plugin_manager import register_action, register_command, get_service, register_event_handler
+from plugin_manager import register_action, register_command, get_service, register_event_handler, get_plugin_settings
+
 
 logger: logging.Logger = logging.getLogger(__name__)
 
 plugin_id: str = "echo"
+
+from plugins.echo.config import PluginSettings  # nopep8
+plugin_settings: PluginSettings = cast(
+    PluginSettings, get_plugin_settings(plugin_id))
 
 
 async def log_echo_response(response_data: dict[str, Any]) -> None:
@@ -50,7 +55,7 @@ async def echo_handler(data: dict[str, Any]) -> bool:
         logger.info(
             f"Echoing message from {incoming.source} in group {incoming.group_id}")
         outgoing: ChatMessage = ChatMessage(
-            source="Echo", destination=incoming.source, text=f"Echo: {incoming.text}", group_id=incoming.group_id)
+            source="Echo", destination=incoming.source, text=f"{plugin_settings.echo_prefix} {incoming.text}", group_id=incoming.group_id)
         await send_signal_message(outgoing, wants_answer_callback=log_echo_response)
     return True
 

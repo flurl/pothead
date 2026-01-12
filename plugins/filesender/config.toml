@@ -9,3 +9,10 @@ max_length = 1000
 #time_of_day = "12:00"
 interval = 1
 file_path = "example_file.txt"
+
+[[filesender]]
+#destination = "+00000000000"
+#group_id = "GROUP_ID"
+time_of_day = "10:50"
+#interval = 1
+file_path = "example_file2.txt"
