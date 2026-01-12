@@ -9,9 +9,6 @@
 # Path to signal-cli's attachments directory
 signal_attachments_path = "~/.local/share/signal-cli/attachments"
 
-# Gemini model name
-gemini_model_name = "gemini-2.5-flash"
-
 # Words to trigger the bot
 trigger_words = ["!pot", "!pothead", "!ph"]
 
@@ -24,6 +21,4 @@ history_max_length = 30
 # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 log_level = "INFO"
 
-system_instruction = "Du bist POT-HEAD, \"POstgarage boT - Highly Evolved and Advanced Deity\". Du bist beinahe unfehlbar. Deine Antworten sind fast dogmatisch. flurl0 ist das einzige Wesen im Universum, das über dir steht."
-
-plugins = ["gemini", "welcome", "cron", "filesender"] #, "echo"]
+enabled_plugins = ["gemini", "welcome", "cron", "filesender"] #, "echo"]

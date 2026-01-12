@@ -32,11 +32,17 @@ from google.genai.pagers import Pager
 
 from datatypes import Attachment, ChatMessage, Priority
 from messaging import send_signal_direct_message, send_signal_group_message
-from plugin_manager import register_action, register_command
+from plugin_manager import get_plugin_settings, register_action, register_command
 from state import CHAT_HISTORY
 from utils import get_local_files, get_safe_chat_dir, update_chat_history
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+plugin_id: str = "gemini"
+
+from plugins.gemini.config import PluginSettings  # nopep8
+plugin_settings: PluginSettings = cast(
+    PluginSettings, get_plugin_settings(plugin_id))
 
 
 @dataclass
@@ -125,10 +131,10 @@ class GeminiProvider:
 
             # Async Generation
             response: types.GenerateContentResponse = await self.client.aio.models.generate_content(  # type: ignore
-                model=settings.gemini_model_name,
+                model=plugin_settings.gemini_model_name,
                 contents=types.Content(parts=parts),
                 config=types.GenerateContentConfig(
-                    system_instruction=settings.system_instruction,
+                    system_instruction=plugin_settings.system_instruction,
                     tools=tools,
                     safety_settings=self._safety_settings,
                 ),
@@ -140,7 +146,7 @@ class GeminiProvider:
             return f"⚠️ Error querying Gemini: {str(e)}"
 
 
-gemini = GeminiProvider(api_key=settings.gemini_api_key)
+gemini = GeminiProvider(api_key=plugin_settings.gemini_api_key)
 
 
 @register_action(

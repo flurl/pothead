@@ -12,7 +12,6 @@ class Settings(BaseSettings):
 
     # Sensitive settings from environment variables
     signal_account: str
-    gemini_api_key: str
     superuser: str
 
     # Settings from pothead.toml with environment variable overrides
@@ -21,13 +20,11 @@ class Settings(BaseSettings):
         "~/.local/share/signal-cli/attachments"
     )
     permissions_store_path: str = "permissions"
-    gemini_model_name: str = "gemini-2.5-flash"
     trigger_words: list[str] = ["!pot", "!pothead", "!ph"]
     file_store_path: str = "document_store"
     history_max_length: int = 30
     log_level: str = "INFO"
-    system_instruction: str = "You are a helpful assistant."
-    plugins: list[str] = []
+    enabled_plugins: list[str] = []
 
     @classmethod
     def settings_customise_sources(

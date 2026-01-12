@@ -28,7 +28,14 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from types import ModuleType
-from typing import Any, TypeAlias
+from typing import Any, ClassVar, TypeAlias
+
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    TomlConfigSettingsSource,
+)
 
 from datatypes import Action, Priority, Command, Event
 from config import settings
@@ -48,6 +55,81 @@ PLUGIN_ACTIONS: list[Action] = []
 PLUGIN_COMMANDS: list[Command] = []
 EVENT_HANDLERS: dict[Event, list[Callable[[], Awaitable[None]]]] = {}
 PLUGIN_SERVICES: dict[str, Callable[..., Any]] = {}
+
+
+class PluginSettingsBase(BaseSettings):
+    settings_path: ClassVar[str] = ""
+    model_config = SettingsConfigDict(
+        env_file_encoding="utf-8",
+        env_prefix="POTHEAD_",
+        case_sensitive=False,
+    )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        if cls.settings_path:
+            settings_cls.model_config["toml_file"] = f"{cls.settings_path}/config.toml"
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            TomlConfigSettingsSource(settings_cls),
+            file_secret_settings,
+        )
+
+
+def get_plugin_settings(plugin_id: str) -> PluginSettingsBase | None:
+    """
+    Loads and returns the settings for a given plugin.
+
+    This function constructs the path to the plugin's `config.py` and `config.toml`
+    files, dynamically imports the `PluginSettings` class from the `config.py` file,
+    and instantiates it. The `pydantic-settings` model handles loading configuration
+    from both the TOML file and environment variables.
+
+    Args:
+        plugin_id: The ID of the plugin for which to load the settings.
+
+    Returns:
+        An instance of the plugin's `PluginSettings` class, or `None` if the
+        configuration cannot be loaded.
+    """
+    plugins_dir: str = "plugins"
+    plugin_dir: str = os.path.join(plugins_dir, plugin_id)
+    config_py_path: str = os.path.join(plugin_dir, "config.py")
+
+    if not os.path.isfile(config_py_path):
+        logger.debug(f"No config.py found for plugin '{plugin_id}'.")
+        return None
+
+    try:
+        module_name: str = f"plugins.{plugin_id}.config"
+        spec: ModuleSpec | None = importlib.util.spec_from_file_location(
+            module_name, config_py_path
+        )
+        if not (spec and spec.loader):
+            logger.error(
+                f"Could not create module spec for plugin config: {plugin_id}")
+            return None
+
+        module: ModuleType = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        settings_class: type[PluginSettingsBase] = getattr(
+            module, "PluginSettings")
+        # Set the settings_path class variable before instantiation
+        settings_class.settings_path = os.path.abspath(plugin_dir)
+        return settings_class()
+    except Exception as e:
+        logger.error(f"Failed to load settings for plugin {plugin_id}: {e}")
+        return None
 
 
 def register_service(service_name: str) -> Callable[..., Any]:
@@ -209,7 +291,7 @@ def load_plugins() -> None:
                 f"Plugin {plugin_name} MANIFEST has no 'id'. Skipping.")
             continue
 
-        if plugin_id not in settings.plugins:
+        if plugin_id not in settings.enabled_plugins:
             continue
 
         if plugin_id in LOADED_PLUGINS:
