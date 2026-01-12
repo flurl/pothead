@@ -1,16 +1,23 @@
 # Default configuration for Pothead
 # These values can be overridden by environment variables.
-# For example, to override the gemini_model_name, set the
-# POTHEAD_GEMINI_MODEL_NAME environment variable.
+# For example, to override the history_max_length, set the
+# POTHEAD_HISTORY_MAX_LENGTH environment variable.
+
+# Sensitive settings (usually set via environment variables)
+# signal_account = "+1234567890"
+# superuser = "+1987654321"
 
 # Path to your signal-cli executable
-# signal_cli_path = "signal-cli-0.13.22-Linux-native/bin/signal-cli"
+signal_cli_path = "signal-cli/signal-cli"
+
+# Words to trigger the bot
+trigger_words = ["!pot", "!pothead", "!ph"]
 
 # Path to signal-cli's attachments directory
 signal_attachments_path = "~/.local/share/signal-cli/attachments"
 
-# Words to trigger the bot
-trigger_words = ["!pot", "!pothead", "!ph"]
+# Path to store permissions
+permissions_store_path = "permissions"
 
 # Path to store documents
 file_store_path = "document_store"
