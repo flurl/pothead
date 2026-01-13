@@ -5,9 +5,11 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file_encoding="utf-8",
+        env_file=".env",
         env_prefix="POTHEAD_",
         case_sensitive=False,
         toml_file="pothead.toml",
+        extra="ignore",
     )
 
     # Sensitive settings from environment variables

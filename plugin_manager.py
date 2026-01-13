@@ -32,6 +32,7 @@ from typing import Any, ClassVar, TypeAlias
 
 from pydantic_settings import (
     BaseSettings,
+    DotEnvSettingsSource,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
     TomlConfigSettingsSource,
@@ -63,6 +64,7 @@ class PluginSettingsBase(BaseSettings):
         env_file_encoding="utf-8",
         env_prefix="POTHEAD_",
         case_sensitive=False,
+        extra="ignore",
     )
 
     @classmethod
@@ -76,6 +78,10 @@ class PluginSettingsBase(BaseSettings):
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         if cls.settings_path:
             settings_cls.model_config["toml_file"] = f"{cls.settings_path}/config.toml"
+            dotenv_settings = DotEnvSettingsSource(
+                settings_cls,
+                env_file=f"{cls.settings_path}/.env",
+            )
         return (
             init_settings,
             env_settings,
