@@ -65,6 +65,7 @@ class PluginSettingsBase(BaseSettings):
         env_prefix="POTHEAD_",
         case_sensitive=False,
         extra="ignore",
+        env_nested_delimiter="__",
     )
 
     @classmethod

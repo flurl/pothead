@@ -33,9 +33,6 @@ class FileSender(BaseModel):
         # Cast to dict[str, Any] to avoid "partially unknown" warning
         data = cast(dict[str, Any], data)
 
-        if not ('destination' in data or 'group_id' in data):
-            raise ValueError(
-                'Either "destination" or "group_id" must be provided.')
         if not ('time_of_day' in data or 'interval' in data):
             raise ValueError(
                 'Either "time_of_day" or "interval" must be provided.')

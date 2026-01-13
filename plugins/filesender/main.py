@@ -12,62 +12,30 @@ import os
 from typing import Callable, Any
 import mimetypes
 
-from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, TomlConfigSettingsSource, SettingsConfigDict
 from pydantic import BaseModel
 
 from datatypes import ChatMessage
 from messaging import send_signal_message
 from plugin_manager import get_service
 from config import settings
+from .config import PluginSettings, FileSender
 
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-class FileSenderSettings(BaseModel):
-    file_path: str
-    destination: str | None = None
-    group_id: str | None = None
-    time_of_day: str | None = None
-    interval: int | None = None
-
-
-class PluginSettings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file_encoding="utf-8",
-        env_prefix="FILESENDER_",
-        case_sensitive=False,
-    )
-    max_length: int = 1000
-    filesender: list[FileSenderSettings] = []
-
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        config_path = os.path.join(os.path.dirname(__file__), "config.toml")
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(
-                f"Configuration file not found: {config_path}")
-        return (env_settings, dotenv_settings, TomlConfigSettingsSource(settings_cls, toml_file=config_path),)
-
-
+PluginSettings.settings_path = os.path.dirname(__file__)
 plugin_settings = PluginSettings()
 
 
 class FileSenderJob(BaseModel):
-    settings: FileSenderSettings
+    settings: FileSender
     job_id: str
 
 
 JOBS: list[FileSenderJob] = []
 
 
-async def send_file_content(send_config: FileSenderSettings) -> None:
+async def send_file_content(send_config: FileSender) -> None:
     """Reads a file, checks constraints, and sends its content."""
     file_path = send_config.file_path
     if not os.path.isabs(file_path):
