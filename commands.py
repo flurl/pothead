@@ -340,6 +340,17 @@ async def cmd_lsdirs(chat_id: str, params: list[str], prompt: str | None) -> tup
     return "\n".join(response_lines), []
 
 
+async def cmd_lshist(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Lists the saved history for the current chat."""
+    if chat_id in CHAT_HISTORY:
+        history: deque[ChatMessage] = CHAT_HISTORY[chat_id]
+        response_lines: list[str] = [f"📜 History for chat '{chat_id}':"]
+        for idx, msg in enumerate(reversed(history)):
+            response_lines.append(f"  {idx+1:>3}: {msg.text}")
+        return "\n".join(response_lines), []
+    return f"⚠️ No history found for chat '{chat_id}'.", []
+
+
 async def cmd_help(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
     """Lists all available commands and their help text."""
     response_lines: list[str] = ["🛠️ Available Commands:"]
@@ -391,4 +402,6 @@ COMMANDS: list[Command] = [
             "Lists all active permissions for the current chat.", "sys"),
     Command("lsdirs", cmd_lsdirs,
             "Lists the safe filesystem paths for the current chat.", "sys"),
+    Command("lshist", cmd_lshist,
+            "Lists the saved history for the current chat.", "sys"),
 ]
