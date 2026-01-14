@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     enabled_plugins: list[str] = []
     settle_time: int = Field(
         default=30, description="Seconds to wait until processing of incoming messages starts")
+    message_prefix: str = Field(
+        default="", description="Prefix to prepend to all messages sent by the bot")
 
     @classmethod
     def settings_customise_sources(

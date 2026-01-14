@@ -73,6 +73,8 @@ async def send_signal_message(
     recipient: str | None = msg.destination
     group_id: str | None = msg.group_id
 
+    message = settings.message_prefix + (message if message else "")
+
     params: dict[str, Any] = {
         "account": settings.signal_account,
         "message": message
