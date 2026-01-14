@@ -235,7 +235,7 @@ async def main() -> None:
     await fire_event(Event.POST_STARTUP)
     logger.info("Listening for messages...")
 
-    start_time = asyncio.get_running_loop().time()
+    start_time: float = asyncio.get_running_loop().time()
 
     try:
         while True:
