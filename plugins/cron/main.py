@@ -47,18 +47,25 @@ cron_jobs: list[CronJob] = []
 
 
 @register_service("register_cron_job")
-def register_cron_job(func: Callable[[], Awaitable[None]], interval: int | None = None, time_of_day: str | None = None) -> None:
+def register_cron_job(func: Callable[[], Awaitable[None]], interval: int | None = None, time_of_day: str | time | None = None) -> None:
     """
     Registers a function to be called at a specific interval or time of day.
 
     :param func: The async function to call.
     :param interval: The interval in minutes.
-    :param time_of_day: The time of day in "HH:MM" format.
+    :param time_of_day: The time of day in "HH:MM" format or as time object.
     """
+    tod: time | None = None
+    if time_of_day is not None:
+        if isinstance(time_of_day, time):
+            tod = time_of_day
+        else:
+            tod = time.fromisoformat(time_of_day)
+
     job = CronJob(
         func=func,
         interval=interval * 60 if interval else None,
-        time_of_day=time.fromisoformat(time_of_day) if time_of_day else None,
+        time_of_day=tod,
     )
     cron_jobs.append(job)
     logger.info(f"Registered cron job: {func.__name__}")
