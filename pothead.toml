@@ -29,3 +29,5 @@ history_max_length = 30
 log_level = "INFO"
 
 enabled_plugins = ["gemini", "welcome", "cron", "filesender"] #, "echo"]
+
+settle_time = 10 # seconds

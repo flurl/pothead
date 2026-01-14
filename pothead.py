@@ -235,6 +235,8 @@ async def main() -> None:
     await fire_event(Event.POST_STARTUP)
     logger.info("Listening for messages...")
 
+    start_time = asyncio.get_running_loop().time()
+
     try:
         while True:
             assert proc.stdout is not None
@@ -246,6 +248,10 @@ async def main() -> None:
 
             decoded_line: str = line.decode('utf-8').strip()
             if decoded_line:
+                if (asyncio.get_running_loop().time() - start_time) < settings.settle_time:
+                    logger.debug(f"Settling... ignoring line: {decoded_line}")
+                    continue
+
                 # Process each line asynchronously so we don't block reading
                 asyncio.create_task(process_incoming_line(decoded_line))
 

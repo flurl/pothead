@@ -1,4 +1,5 @@
 import os
+from pydantic import Field
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
 
 
@@ -27,6 +28,8 @@ class Settings(BaseSettings):
     history_max_length: int = 30
     log_level: str = "INFO"
     enabled_plugins: list[str] = []
+    settle_time: int = Field(
+        default=10, description="Seconds to wait until processing of incoming messages starts")
 
     @classmethod
     def settings_customise_sources(
