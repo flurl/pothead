@@ -30,4 +30,4 @@ log_level = "INFO"
 
 enabled_plugins = ["gemini", "welcome", "cron", "filesender"] #, "echo"]
 
-settle_time = 10 # seconds
+settle_time = 30 # seconds

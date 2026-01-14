@@ -28,6 +28,7 @@ import asyncio
 from asyncio.subprocess import Process
 import json
 import logging
+import math
 import sys
 from typing import Any
 
@@ -208,6 +209,16 @@ async def process_incoming_line(line: str) -> None:
                 return
 
 
+async def settle_countdown(start_time: float):
+    while (asyncio.get_running_loop().time() - start_time) < settings.settle_time:
+        remaining_time: int = math.ceil(
+            settings.settle_time - (asyncio.get_running_loop().time() - start_time))
+        logger.info(
+            f"Settling for {remaining_time} seconds more...")
+        await asyncio.sleep(1)
+    logger.info("Settle time over - going to work")
+
+
 async def main() -> None:
     # Load plugins before starting the main loop
     load_plugins()
@@ -236,6 +247,9 @@ async def main() -> None:
     logger.info("Listening for messages...")
 
     start_time: float = asyncio.get_running_loop().time()
+    # start settle_countdown as a task
+    settle_task: asyncio.Task[None] = asyncio.create_task(
+        settle_countdown(start_time))
 
     try:
         while True:
@@ -259,6 +273,7 @@ async def main() -> None:
         pass
     finally:
         timer_task.cancel()
+        settle_task.cancel()
         await fire_event(Event.PRE_SHUTDOWN)
         if proc.returncode is None:
             proc.terminate()

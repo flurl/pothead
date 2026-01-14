@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     enabled_plugins: list[str] = []
     settle_time: int = Field(
-        default=10, description="Seconds to wait until processing of incoming messages starts")
+        default=30, description="Seconds to wait until processing of incoming messages starts")
 
     @classmethod
     def settings_customise_sources(
