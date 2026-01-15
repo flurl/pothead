@@ -216,7 +216,8 @@ async def action_send_to_gemini(data: dict[str, Any]) -> bool:
     if msg.group_id:
         await send_signal_group_message(response_text, msg.group_id)
     else:
-        await send_signal_direct_message(response_text, msg.chat_id)
+        assert msg.destination is not None
+        await send_signal_direct_message(response_text, msg.destination)
     return True
 
 

@@ -1,3 +1,4 @@
 pytest
 pytest-asyncio
 pydantic
+jsonpath_ng
