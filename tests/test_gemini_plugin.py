@@ -9,6 +9,8 @@ google_mock.genai.client = MagicMock()
 google_mock.genai.types = MagicMock()
 google_mock.genai.pagers = MagicMock()
 
+gemini_module = None
+
 with patch.dict('sys.modules', {
     'google': google_mock,
     'google.genai': google_mock.genai,
@@ -16,6 +18,8 @@ with patch.dict('sys.modules', {
     'google.genai.types': google_mock.genai.types,
     'google.genai.pagers': google_mock.genai.pagers
 }):
+    import plugins.gemini.main
+    gemini_module = plugins.gemini.main
     from plugins.gemini.main import GeminiProvider, action_send_to_gemini
     from datatypes import ChatMessage, MessageQuote
 
@@ -25,7 +29,8 @@ async def test_gemini_provider_get_response():
     with patch.object(GeminiProvider, 'client', new_callable=PropertyMock) as mock_client_prop:
         mock_client_instance = MagicMock()
         mock_client_prop.return_value = mock_client_instance
-        mock_client_instance.aio.models.generate_content = AsyncMock(return_value=MagicMock(text="Test response"))
+        mock_client_instance.aio.models.generate_content = AsyncMock(
+            return_value=MagicMock(text="Test response"))
 
         provider = GeminiProvider(api_key="test_key")
         response = await provider.get_response("test_chat", "Test prompt")
@@ -35,24 +40,31 @@ async def test_gemini_provider_get_response():
 
 # --- Fixtures ---
 
+
 @pytest.fixture
 def mock_gemini_provider():
     """Fixture to mock the GeminiProvider's async methods."""
-    with patch('plugins.gemini.main.gemini.get_response', new_callable=AsyncMock) as mock_get_response, \
-         patch.object(GeminiProvider, 'client', new_callable=PropertyMock) as mock_client_prop:
+    with patch.object(gemini_module.gemini, 'get_response', new_callable=AsyncMock) as mock_get_response, \
+            patch.object(GeminiProvider, 'client', new_callable=PropertyMock) as mock_client_prop:
         mock_get_response.return_value = "Mocked Gemini Response"
+
         mock_client_instance = MagicMock()
+        # Ensure the async method is mocked with AsyncMock to allow 'await'
+        mock_client_instance.aio.models.generate_content = AsyncMock(
+            return_value=MagicMock(text="Mocked Gemini Response"))
         mock_client_prop.return_value = mock_client_instance
+
         yield {
             "get_response": mock_get_response,
             "client": mock_client_instance
         }
 
+
 @pytest.fixture
 def mock_messaging():
     """Fixture to mock the messaging functions."""
-    with patch('plugins.gemini.main.send_signal_direct_message', new_callable=AsyncMock) as mock_direct, \
-         patch('plugins.gemini.main.send_signal_group_message', new_callable=AsyncMock) as mock_group:
+    with patch.object(gemini_module, 'send_signal_direct_message', new_callable=AsyncMock) as mock_direct, \
+            patch.object(gemini_module, 'send_signal_group_message', new_callable=AsyncMock) as mock_group:
         yield {"direct": mock_direct, "group": mock_group}
 
 
@@ -63,7 +75,7 @@ DATA_MESSAGE_DIRECT = {
         "envelope": {
             "source": "+12345", "sourceDevice": 1,
             "dataMessage": {
-                "message": "!ping How are you?",
+                "message": "!ph How are you?",
                 "groupInfo": {}
             }
         }
@@ -74,38 +86,57 @@ DATA_MESSAGE_GROUP = {
         "envelope": {
             "source": "+12345", "sourceDevice": 1,
             "dataMessage": {
-                "message": "!ping How are you?",
+                "message": "!ph How are you?",
                 "groupInfo": {"groupId": "group123"}
             }
         }
     }
 }
 
+
 @pytest.mark.asyncio
-@patch('plugins.gemini.main.settings')
+@patch.object(gemini_module, 'settings')
 async def test_action_send_to_gemini(mock_settings, mock_gemini_provider, mock_messaging):
-    mock_settings.trigger_words = ["!ping"]
+    # Use a trigger word that matches the test data
+    mock_settings.trigger_words = ["!ph"]
 
     # --- Test direct message ---
     await action_send_to_gemini(DATA_MESSAGE_DIRECT)
-    mock_gemini_provider["get_response"].assert_called_once_with("+12345", "How are you?")
-    mock_messaging["direct"].assert_called_once_with("Mocked Gemini Response", "+12345")
+
+    msg_direct = ChatMessage.from_json(DATA_MESSAGE_DIRECT)
+    prompt_direct = "How are you?"
+
+    mock_gemini_provider["get_response"].assert_called_once_with(
+        msg_direct.chat_id, prompt_direct)
+    mock_messaging["direct"].assert_called_once_with(
+        "Mocked Gemini Response", msg_direct.chat_id)
     assert not mock_messaging["group"].called
     mock_gemini_provider["get_response"].reset_mock()
     mock_messaging["direct"].reset_mock()
 
     # --- Test group message ---
     await action_send_to_gemini(DATA_MESSAGE_GROUP)
-    mock_gemini_provider["get_response"].assert_called_once_with("group123", "How are you?")
-    mock_messaging["group"].assert_called_once_with("Mocked Gemini Response", "group123")
+
+    msg_group = ChatMessage.from_json(DATA_MESSAGE_GROUP)
+    prompt_group = "How are you?"
+
+    mock_gemini_provider["get_response"].assert_called_once_with(
+        msg_group.chat_id, prompt_group)
+    mock_messaging["group"].assert_called_once_with(
+        "Mocked Gemini Response", msg_group.chat_id)
     assert not mock_messaging["direct"].called
     mock_gemini_provider["get_response"].reset_mock()
     mock_messaging["group"].reset_mock()
 
     # --- Test with quote ---
-    msg_with_quote = DATA_MESSAGE_DIRECT.copy()
-    msg_with_quote["params"]["envelope"]["dataMessage"]["quote"] = {"text": "This is a quoted message."}
-    await action_send_to_gemini(msg_with_quote)
-    expected_prompt = "How are you?\n\n>> This is a quoted message."
-    mock_gemini_provider["get_response"].assert_called_once_with("+12345", expected_prompt)
+    msg_with_quote_data = DATA_MESSAGE_DIRECT.copy()
+    msg_with_quote_data["params"]["envelope"]["dataMessage"]["quote"] = {
+        "text": "This is a quoted message."}
+    await action_send_to_gemini(msg_with_quote_data)
+
+    msg_quoted = ChatMessage.from_json(msg_with_quote_data)
+    expected_prompt = f"{prompt_direct}\n\n>> This is a quoted message."
+
+    mock_gemini_provider["get_response"].assert_called_once_with(
+        msg_quoted.chat_id, expected_prompt)
     mock_gemini_provider["get_response"].reset_mock()
