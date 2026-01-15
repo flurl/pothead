@@ -216,8 +216,8 @@ async def action_send_to_gemini(data: dict[str, Any]) -> bool:
     if msg.group_id:
         await send_signal_group_message(response_text, msg.group_id)
     else:
-        assert msg.destination is not None
-        await send_signal_direct_message(response_text, msg.destination)
+        # For direct messages, the recipient of the reply is the original source
+        await send_signal_direct_message(response_text, msg.source)
     return True
 
 
@@ -234,11 +234,8 @@ async def cmd_add_ctx(chat_id: str, params: list[str], prompt: str | None = None
         for p in params:
             try:
                 idx = int(p)
-                if 1 <= idx <= 10 and idx <= len(history):
-                    # 1-based index from end: 1 -> -1 (most recent)
-                    # skip the last history entry which is the command itself
-                    # therefore the -1
-                    context.append(str(history[-idx-1]))
+                if 1 <= idx <= 10 and idx < len(history):
+                    context.append(str(history[-(idx + 1)]))
                     saved_count += 1
             except ValueError:
                 pass

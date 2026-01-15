@@ -58,15 +58,16 @@ def get_group_dir(chat_id: str) -> str:
 
 
 def find_new_members(chat_id: str, members: list[Member]) -> list[Member]:
-    # load the list of members from the plugins directory in the file members.csv
     file_path: str = os.path.join(get_group_dir(chat_id), "members.csv")
     existing_members_numbers: set[str] = set()
     if os.path.exists(file_path):
         with open(file_path, "r") as f:
             for line in f:
-                parts: list[str] = line.strip().split(',')
-                if parts:
-                    existing_members_numbers.add(parts[0])
+                line = line.strip()
+                if line:
+                    parts: list[str] = line.split(',')
+                    if parts:
+                        existing_members_numbers.add(parts[0])
 
     new_members: list[Member] = []
     for member in members:

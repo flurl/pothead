@@ -110,15 +110,15 @@ async def test_group_info_handler_no_new_member(mock_messaging_welcome, mock_fil
     # Existing members file contains all current members
     existing_members_csv = "+111,uuid1,None\n+222,uuid2,None\n"
     mock_file_system["exists"].return_value = True
-    mock_file_system["open"].return_value.read.return_value = existing_members_csv
 
-    with patch('plugins.welcome.main.save_members') as mock_save_members:
-        await group_info_handler(GROUP_INFO_DATA)
+    with patch('builtins.open', mock_open(read_data=existing_members_csv)):
+        with patch('plugins.welcome.main.save_members') as mock_save_members:
+            await group_info_handler(GROUP_INFO_DATA)
 
-        # No welcome message should be sent
-        mock_messaging_welcome["send_signal_group_message"].assert_not_called()
-        # Members should still be re-saved (to keep the list fresh)
-        mock_save_members.assert_called_once()
+            # No welcome message should be sent
+            mock_messaging_welcome["send_signal_group_message"].assert_not_called()
+            # Members should still be re-saved (to keep the list fresh)
+            mock_save_members.assert_called_once()
 
 
 # --- Tests for cmd_initgroup ---
@@ -159,15 +159,13 @@ def test_find_new_members(mock_file_system):
         Member(number="+333", uuid="uuid3"), # New member
     ]
     # Simulate existing members file
+    existing_members_csv = "+111,uuid1,None\n+222,uuid2,None\n"
     mock_file_system["exists"].return_value = True
-    mock_file_system["open"].return_value.__enter__.return_value.readlines.return_value = [
-        "+111,uuid1,None\n",
-        "+222,uuid2,None\n",
-    ]
 
-    new_members = find_new_members(chat_id, current_members)
-    assert len(new_members) == 1
-    assert new_members[0].number == "+333"
+    with patch('builtins.open', mock_open(read_data=existing_members_csv)):
+        new_members = find_new_members(chat_id, current_members)
+        assert len(new_members) == 1
+        assert new_members[0].number == "+333"
 
 def test_save_members(mock_file_system):
     chat_id = "group123"
