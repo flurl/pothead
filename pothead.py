@@ -154,7 +154,7 @@ def command_filter(match: DatumInContext) -> bool:
         msg: str = match.value  # type: ignore
     else:
         return False
-    return msg.strip().startswith(tuple(w+"#" for w in settings.trigger_words))  # type: ignore
+    return msg.strip().upper().startswith(tuple((w+"#").upper() for w in settings.trigger_words))  # type: ignore
 
 
 # dataMessage are usual messages from signal accounts

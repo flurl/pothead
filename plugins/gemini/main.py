@@ -154,7 +154,7 @@ gemini = GeminiProvider(api_key=plugin_settings.gemini_api_key)
     name="Handle Gemini in Sync Message",
     jsonpath="$.params.envelope.syncMessage.sentMessage.message",
     filter=lambda match: match.value and match.value.strip(
-    ).startswith(tuple(settings.trigger_words)),
+    ).upper().startswith(tuple(w.upper() for w in settings.trigger_words)),
     priority=Priority.HIGH,
 )
 @register_action(
@@ -162,7 +162,7 @@ gemini = GeminiProvider(api_key=plugin_settings.gemini_api_key)
     name="Handle Gemini in Data Message",
     jsonpath="$.params.envelope.dataMessage.message",
     filter=lambda match: match.value and match.value.strip(
-    ).startswith(tuple(settings.trigger_words)),
+    ).upper().startswith(tuple(w.upper() for w in settings.trigger_words)),
     priority=Priority.HIGH,
 )
 async def action_send_to_gemini(data: dict[str, Any]) -> bool:
@@ -178,7 +178,7 @@ async def action_send_to_gemini(data: dict[str, Any]) -> bool:
 
     # Sort triggers by length to match longest first ("!gemini" before "!")
     for tw in sorted(settings.trigger_words, key=len, reverse=True):
-        if clean_msg.startswith(tw):
+        if clean_msg.upper().startswith(tw.upper()):
             content: str = clean_msg[len(tw):].strip()
             # Ignore commands notes starting with #
             if content.startswith("#"):
