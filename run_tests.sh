@@ -6,4 +6,4 @@ else
     PYTEST_CMD="pytest"
 fi
 
-POTHEAD_SIGNAL_ACCOUNT="test" POTHEAD_GEMINI_API_KEY="test" POTHEAD_SUPERUSER="test" POTHEAD_ENABLED_PLUGINS='["echo", "cron", "filesender", "gemini", "welcome"]' PYTHONPATH=. $PYTEST_CMD
+POTHEAD_SIGNAL_ACCOUNT="test" POTHEAD_GEMINI_API_KEY="test" POTHEAD_SUPERUSER="test" POTHEAD_ENABLED_PLUGINS='["echo", "cron", "filesender", "gemini", "welcome"]' PYTHONPATH=. $PYTEST_CMD $1
