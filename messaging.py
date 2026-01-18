@@ -15,7 +15,7 @@ from typing import Any
 
 from asyncio.subprocess import Process
 from config import settings
-from datatypes import ChatMessage
+from datatypes import ChatMessage, MessageType
 from plugin_manager import PENDING_REPLIES
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ async def send_signal_direct_message(
         dict[str, Any]], Awaitable[None]] | None = None
 ) -> None:
     msg: ChatMessage = ChatMessage(
-        source="Assistant", destination=recipient, text=message)
+        source="Assistant", destination=recipient, text=message, type=MessageType.CHAT)
     await send_signal_message(msg, attachments=attachments, wants_answer_callback=wants_answer_callback)
 
 
@@ -48,7 +48,7 @@ async def send_signal_group_message(
         dict[str, Any]], Awaitable[None]] | None = None
 ) -> None:
     msg: ChatMessage = ChatMessage(
-        source="Assistant", group_id=group_id, text=message)
+        source="Assistant", group_id=group_id, text=message, type=MessageType.CHAT)
     await send_signal_message(msg, attachments=attachments, wants_answer_callback=wants_answer_callback)
 
 

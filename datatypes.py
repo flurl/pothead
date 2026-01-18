@@ -9,6 +9,7 @@ data from `signal-cli` into structured objects.
 
 from dataclasses import dataclass, field
 import json
+import datetime
 from typing import Any, Self, TypeAlias, cast
 from collections.abc import Awaitable, Callable
 from enum import Enum
@@ -91,53 +92,38 @@ class MessageQuote:
         )
 
 
-@dataclass
-class ChatMessage:
+class MessageType(Enum):
     """
-    Standardized representation of a chat message.
+    Enum to distinguish between different message types.
+    """
+    CHAT = "chat"
+    REACTION = "reaction"
+    RECEIPT = "receipt"
+    TYPING = "typing"
+    UNKNOWN = "unknown"
 
-    Attributes:
-        source: The sender of the message.
-        destination: The recipient of the message.
-        text: The text content of the message.
-        attachments: A list of attachments in the message.
-        quote: The quoted message, if any.
-        group_id: The group ID, if the message is associated with a group.
+
+@dataclass
+class SignalMessage:
+    """
+    Base class for all Signal messages.
     """
     source: str
-    destination: str | None = None
-    text: str | None = None
-    attachments: list[Attachment] | None = None
-    quote: MessageQuote | None = None
-    # if it's a message to or from a group there will be a group_id
+    type: MessageType
+    timestamp: int = field(default_factory=lambda: int(
+        datetime.datetime.now().timestamp() * 1000))
     group_id: str | None = None
+    is_synced: bool = False
 
     @property
-    def chat_id(self) -> str:
-        """Returns the ID of the chat context (group ID or sender)."""
-        return self.destination if self.destination else self.source
-
-    def __str__(self) -> str:
-        out: list[str] = []
-        if self.text:
-            out.append(self.text)
-        if self.attachments:
-            out.append(f"[Attachments: {len(self.attachments)}]")
-            for att in self.attachments:
-                name: str = att.filename if att.filename else att.id
-                details: str = f"{name} ({att.content_type})"
-                if att.caption:
-                    details += f" Caption: {att.caption}"
-                out.append(f"  - {details}")
-        return "\n".join(out)
+    def id(self) -> str:
+        """Returns a unique identifier for the message."""
+        return f"{self.source}${self.timestamp}"
 
     @classmethod
-    def from_json(cls, data: dict[str, Any] | str) -> Self | None:
+    def from_json(cls, data: dict[str, Any] | str) -> "SignalMessage | None":
         """
-        Parses a JSON dictionary or string from signal-cli into a ChatMessage object.
-
-        Handles both 'dataMessage' (incoming messages) and 'syncMessage' (messages sent from other devices).
-        Returns None if the data is not a valid message or cannot be parsed.
+        Parses a JSON dictionary or string from signal-cli into a SignalMessage object.
         """
         if isinstance(data, str):
             try:
@@ -152,41 +138,159 @@ class ChatMessage:
         if source is None:
             return None
 
-        group_id: str | None = None
-
+        # messages from others to me
         if "dataMessage" in envelope:
             data_message: dict[str, Any] = envelope.get("dataMessage", {})
-            destination: str | None = data_message.get("groupInfo", {}).get(
-                "groupId", None)
-            group_id = destination
-            text: str | None = data_message.get("message")
-            attachments: list[Attachment] = [Attachment.from_dict(
-                a) for a in data_message.get("attachments", [])]
-            raw_quote: dict[str, Any] | None = data_message.get("quote")
-            quote: MessageQuote | None = MessageQuote.from_dict(
-                raw_quote) if raw_quote else None
+            return ChatMessage.parse_message(data_message, source, is_synced=False)
         elif "syncMessage" in envelope:
-            sent_message: dict[str, Any] = envelope.get(
-                "syncMessage", {}).get("sentMessage", {})
+            if "sentMessage" in envelope["syncMessage"]:
+                sent_message: dict[str,
+                                   Any] = envelope["syncMessage"]["sentMessage"]
+                return ChatMessage.parse_message(sent_message, source, is_synced=True)
+        elif "receiptMessage" in envelope:
+            return ReceiptMessage.parse_receipt_message(envelope, source)
+        elif "typingMessage" in envelope:
+            return TypingMessage.parse_typing_message(envelope, source)
 
-            if not sent_message:
-                return None
+        return None
 
-            destination: str | None = sent_message.get("destination")
-            if not destination and "groupInfo" in sent_message:
-                group_info: dict[str, Any] = sent_message.get("groupInfo", {})
-                destination = group_info.get("groupId")
-                group_id = destination
-            text: str | None = sent_message.get("message")
-            attachments: list[Attachment] = [Attachment.from_dict(
-                a) for a in sent_message.get("attachments", [])]
-            raw_quote: dict[str, Any] | None = sent_message.get("quote")
-            quote: MessageQuote | None = MessageQuote.from_dict(
-                raw_quote) if raw_quote else None
-        else:
+
+@dataclass
+class ChatMessage(SignalMessage):
+    """
+    Standardized representation of a chat message.
+
+    Attributes:
+        source: The sender of the message (inherited).
+        type: The type of the message (inherited).
+        timestamp: The timestamp of the message (inherited).
+        group_id: The group ID (inherited).
+        is_synced: Whether the message was synced (inherited).
+        destination: The recipient of the message.
+        text: The text content of the message.
+        attachments: A list of attachments in the message.
+        quote: The quoted message, if any.
+    """
+    destination: str | None = None
+    text: str | None = None
+    attachments: list[Attachment] | None = None
+    quote: MessageQuote | None = None
+
+    @property
+    def chat_id(self) -> str:
+        """Returns the ID of the chat context (group ID or sender)."""
+        return self.destination if self.destination else self.source
+
+    def __str__(self) -> str:
+        sender_info: str = self.source
+        if self.destination:
+            sender_info += f" -> {self.destination}"
+        elif self.group_id:
+            sender_info += f" (Group: {self.group_id})"
+
+        msg_repr: str = f"[{datetime.datetime.fromtimestamp(self.timestamp / 1000).strftime('%Y-%m-%d %H:%M:%S')}] [{self.type.value.upper()}] {sender_info}"
+        if self.text:
+            msg_repr += f"\nText: {self.text}"
+        if self.attachments:
+            msg_repr += f"\nAttachments: {len(self.attachments)}"
+            for att in self.attachments:
+                msg_repr += f"\n  - {att.filename or att.id} ({att.content_type})"
+                if att.caption:
+                    msg_repr += f" (Caption: {att.caption})"
+        if self.quote:
+            msg_repr += f"\nQuote (from {self.quote.author}): {self.quote.text or '[No text]'}"
+        return msg_repr
+
+    @classmethod
+    def parse_message(cls, message_body: dict[str, Any], source: str, is_synced: bool = False) -> "SignalMessage | None":
+        timestamp: int | None = message_body.get("timestamp", None)
+        if timestamp is None:
             return None
 
-        return cls(source=source, destination=destination, text=text, attachments=attachments, quote=quote, group_id=group_id)
+        if "reaction" in message_body:
+            return ReactionMessage.parse_reaction(message_body, source, timestamp, MessageType.REACTION)
+
+        group_id: str | None = message_body.get("groupInfo", {}).get("groupId")
+        destination: str | None = message_body.get("destination")
+        if not destination:
+            destination = group_id
+
+        text: str | None = message_body.get("message")
+        attachments: list[Attachment] = [Attachment.from_dict(
+            a) for a in message_body.get("attachments", [])]
+        raw_quote: dict[str, Any] | None = message_body.get("quote")
+        quote: MessageQuote | None = MessageQuote.from_dict(
+            raw_quote) if raw_quote else None
+
+        return cls(source=source, type=MessageType.CHAT, timestamp=timestamp, group_id=group_id, destination=destination, text=text, attachments=attachments, quote=quote, is_synced=is_synced)
+
+
+@dataclass(kw_only=True)
+class ReactionMessage(SignalMessage):
+    emoji: str
+    target_author: str
+    target_sent_timestamp: int
+    is_remove: bool
+
+    @classmethod
+    def parse_reaction(cls, message_body: dict[str, Any], source: str, timestamp: int, msg_type: MessageType) -> "ReactionMessage":
+        reaction: dict[str, Any] = message_body.get("reaction", {})
+        group_id: str | None = message_body.get("groupInfo", {}).get("groupId")
+        return cls(
+            source=source,
+            type=msg_type,
+            timestamp=timestamp,
+            group_id=group_id,
+            emoji=reaction.get("emoji", ""),
+            target_author=reaction.get("targetAuthor", ""),
+            target_sent_timestamp=reaction.get("targetSentTimestamp", 0),
+            is_remove=reaction.get("remove", False)
+        )
+
+
+@dataclass
+class ReceiptMessage(SignalMessage):
+    timestamps: list[int] = field(kw_only=True)
+    is_delivery: bool = False
+    is_read: bool = False
+    is_viewed: bool = False
+
+    @classmethod
+    def parse_receipt_message(cls, envelope: dict[str, Any], source: str) -> "ReceiptMessage | None":
+        receipt: dict[str, Any] = envelope.get("receiptMessage", {})
+        timestamps: list[int] = receipt.get("timestamps", [])
+        if not timestamps:
+            return None
+        when: int = receipt.get("when", int(
+            datetime.datetime.now().timestamp() * 1000))
+        return cls(
+            source=source,
+            type=MessageType.RECEIPT,
+            timestamp=when,
+            timestamps=timestamps,
+            is_delivery=receipt.get("isDelivery", False),
+            is_read=receipt.get("isRead", False),
+            is_viewed=receipt.get("isViewed", False)
+        )
+
+
+@dataclass
+class TypingMessage(SignalMessage):
+    action: str = field(kw_only=True)
+
+    @classmethod
+    def parse_typing_message(cls, envelope: dict[str, Any], source: str) -> "TypingMessage | None":
+        typing: dict[str, Any] = envelope.get("typingMessage", {})
+        timestamp: int | None = typing.get("timestamp")
+        if timestamp is None:
+            return None
+        return cls(
+            source=source,
+            type=MessageType.TYPING,
+            timestamp=timestamp,
+            group_id=typing.get("groupId"),
+            action=typing.get("action", "UNKNOWN")
+        )
 
 
 class Priority(Enum):
@@ -280,3 +384,4 @@ class Event(Enum):
     POST_STARTUP = "post_startup"
     PRE_SHUTDOWN = "pre_shutdown"
     TIMER = "timer"
+    CHAT_MESSAGE_RECEIVED = "message_received"

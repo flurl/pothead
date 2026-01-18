@@ -14,7 +14,7 @@ import mimetypes
 
 from pydantic import BaseModel
 
-from datatypes import ChatMessage
+from datatypes import ChatMessage, MessageType
 from messaging import send_signal_message
 from plugin_manager import get_service
 from config import settings
@@ -78,6 +78,7 @@ async def send_file_content(send_config: FileSender) -> None:
         destination=send_config.destination,
         group_id=send_config.group_id,
         text=content,
+        type=MessageType.CHAT,
     )
     await send_signal_message(outgoing_message)
 

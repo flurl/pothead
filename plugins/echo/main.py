@@ -11,7 +11,7 @@ import logging
 from typing import Any, Callable, cast
 
 from config import settings
-from datatypes import ChatMessage, Event
+from datatypes import ChatMessage, Event, MessageType, SignalMessage
 from messaging import send_signal_direct_message, send_signal_message
 from plugin_manager import register_action, register_command, get_service, register_event_handler, get_plugin_settings
 
@@ -44,8 +44,10 @@ async def echo_handler(data: dict[str, Any]) -> bool:
     """
     Handles echoing a message back to the sender from either a dataMessage or a syncMessage.
     """
-    incoming: ChatMessage | None = ChatMessage.from_json(data)
-    if not incoming:
+    incoming: SignalMessage | None = SignalMessage.from_json(data)
+    if incoming and incoming.type == MessageType.CHAT:
+        incoming = cast(ChatMessage, incoming)
+    else:
         return False
 
     if not incoming.text:
@@ -55,7 +57,7 @@ async def echo_handler(data: dict[str, Any]) -> bool:
         logger.info(
             f"Echoing message from {incoming.source} in group {incoming.group_id}")
         outgoing: ChatMessage = ChatMessage(
-            source="Echo", destination=incoming.source, text=f"{plugin_settings.echo_prefix} {incoming.text}", group_id=incoming.group_id)
+            source="Echo", destination=incoming.source, text=f"{plugin_settings.echo_prefix} {incoming.text}", group_id=incoming.group_id, type=MessageType.CHAT)
         await send_signal_message(outgoing, wants_answer_callback=log_echo_response)
     return True
 

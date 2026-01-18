@@ -102,9 +102,9 @@ def update_chat_history(msg: ChatMessage) -> None:
         CHAT_HISTORY[chat_id] = deque[ChatMessage](
             maxlen=settings.history_max_length)
     CHAT_HISTORY[chat_id].append(msg)
-    logger.debug(f"Chat history for {chat_id}: {CHAT_HISTORY[chat_id]}")
-    for line in CHAT_HISTORY[chat_id]:
-        logger.debug(line)
+    # logger.debug(f"Chat history for {chat_id}: {CHAT_HISTORY[chat_id]}")
+    # for line in CHAT_HISTORY[chat_id]:
+    #    logger.debug(line)
 
 
 def get_chat_id(data: dict[str, Any]) -> str | None:

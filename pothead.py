@@ -30,12 +30,12 @@ import json
 import logging
 import math
 import sys
-from typing import Any
+from typing import Any, cast
 
 from jsonpath_ng.jsonpath import DatumInContext
 
 from commands import COMMANDS
-from datatypes import Action, ChatMessage, MessageQuote, Priority, Event
+from datatypes import Action, ChatMessage, MessageQuote, MessageType, Priority, Event, SignalMessage
 from messaging import set_signal_process, send_signal_message
 from utils import check_permission, update_chat_history
 from plugin_manager import (
@@ -57,13 +57,13 @@ logging.basicConfig(
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-async def fire_event(event: Event) -> None:
+async def fire_event(event: Event, *args: Any, **kwargs: Any) -> None:
     """Fires an event and runs all registered handlers."""
     if event in EVENT_HANDLERS:
         logger.info(f"Firing event: {event}")
         for handler in EVENT_HANDLERS[event]:
             try:
-                await handler()
+                await handler(*args, **kwargs)
             except Exception:
                 logger.exception(f"Error in event handler for {event}")
 
@@ -89,8 +89,10 @@ async def execute_command(chat_id: str, sender: str, command: str, params: list[
 
 async def handle_command(data: dict[str, Any]) -> bool:
     """Handles incoming commands."""
-    msg: ChatMessage | None = ChatMessage.from_json(data)
-    if not msg:
+    msg: SignalMessage | None = SignalMessage.from_json(data)
+    if msg and msg.type == MessageType.CHAT:
+        msg = cast(ChatMessage, msg)
+    else:
         return False
 
     chat_id: str = msg.chat_id
@@ -131,7 +133,7 @@ async def handle_command(data: dict[str, Any]) -> bool:
                 response_text, response_attachments = await execute_command(chat_id, msg.source, command, command_params, prompt)
 
                 response: ChatMessage = ChatMessage(
-                    source="Assistant", destination=chat_id, text=response_text, group_id=msg.group_id)
+                    source="Assistant", destination=chat_id, text=response_text, group_id=msg.group_id, type=MessageType.CHAT)
 
                 await send_signal_message(response, attachments=response_attachments)
                 update_chat_history(response)
@@ -141,10 +143,11 @@ async def handle_command(data: dict[str, Any]) -> bool:
     return False
 
 
-async def handle_history(data: dict[str, Any]) -> bool:
-    msg: ChatMessage | None = ChatMessage.from_json(data)
-    if msg:
-        update_chat_history(msg)
+async def handle_incomming_message(data: dict[str, Any]) -> bool:
+    msg: SignalMessage | None = SignalMessage.from_json(data)
+    if msg and msg.type == MessageType.CHAT:
+        update_chat_history(cast(ChatMessage, msg))
+        await fire_event(Event.CHAT_MESSAGE_RECEIVED, msg)
     # always return false so that the message is further processed
     return False
 
@@ -162,10 +165,10 @@ def command_filter(match: DatumInContext) -> bool:
 # the order is important as we want to first check for !TRIGGER#CMD and then for just !TRIGGER
 ACTIONS: list[Action] = [
     Action(
-        name="Handle history",
+        name="Handle incomming message",
         jsonpath="$.params.envelope",
         filter=None,
-        handler=handle_history,
+        handler=handle_incomming_message,
         priority=Priority.SYS,
         origin="sys"
     ),

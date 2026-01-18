@@ -3,7 +3,7 @@ import asyncio
 from collections import deque
 from unittest.mock import AsyncMock, patch, mock_open
 import pytest
-from datatypes import ChatMessage, Command, Permissions
+from datatypes import ChatMessage, Command, MessageType, Permissions
 from commands import (
     cmd_save,
     cmd_ls_store,
@@ -23,11 +23,13 @@ from commands import (
     COMMANDS,
 )
 
+
 @pytest.mark.asyncio
 async def test_cmd_save():
     chat_id = "test_chat"
     prompt = "Test prompt"
-    history = deque([ChatMessage(source="user1", text="Message 1")])
+    history = deque(
+        [ChatMessage(source="user1", text="Message 1", type=MessageType.CHAT)])
 
     with patch("commands.CHAT_HISTORY", {chat_id: history}):
         with patch("builtins.open", mock_open()) as mock_file:
@@ -35,6 +37,7 @@ async def test_cmd_save():
                 response, attachments = await cmd_save(chat_id, [], prompt)
                 assert "Saved 1 text items" in response
                 mock_file.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_cmd_ls_store():
@@ -44,6 +47,7 @@ async def test_cmd_ls_store():
         assert "file1.txt" in response
         assert "file2.txt" in response
 
+
 @pytest.mark.asyncio
 async def test_cmd_getfile():
     chat_id = "test_chat"
@@ -52,6 +56,7 @@ async def test_cmd_getfile():
             response, attachments = await cmd_getfile(chat_id, ["1"], None)
             assert "Here is file1.txt" in response
             assert attachments == ["/tmp/chat/file1.txt"]
+
 
 @pytest.mark.asyncio
 async def test_cmd_grant():
@@ -64,6 +69,7 @@ async def test_cmd_grant():
             assert "Granted 'help' to user1" in response
             mock_save.assert_called_once()
 
+
 @pytest.mark.asyncio
 async def test_cmd_mkgroup():
     chat_id = "test_chat"
@@ -75,27 +81,32 @@ async def test_cmd_mkgroup():
             assert "Group 'new_group' created" in response
             mock_save.assert_called_once()
 
+
 @pytest.mark.asyncio
 async def test_cmd_addmember():
     chat_id = "test_chat"
     params = ["my_group", "user1"]
-    perms: Permissions = {"users": {}, "groups": {"my_group": {"members": [], "permissions": []}}}
+    perms: Permissions = {"users": {}, "groups": {
+        "my_group": {"members": [], "permissions": []}}}
     with patch("commands.load_permissions", return_value=perms):
         with patch("commands.save_permissions") as mock_save:
             response, _ = await cmd_addmember(chat_id, params, None)
             assert "Added user1 to group 'my_group'" in response
             mock_save.assert_called_once()
 
+
 @pytest.mark.asyncio
 async def test_cmd_grantgroup():
     chat_id = "test_chat"
     params = ["help", "my_group"]
-    perms: Permissions = {"users": {}, "groups": {"my_group": {"members": [], "permissions": []}}}
+    perms: Permissions = {"users": {}, "groups": {
+        "my_group": {"members": [], "permissions": []}}}
     with patch("commands.load_permissions", return_value=perms):
         with patch("commands.save_permissions") as mock_save:
             response, _ = await cmd_grantgroup(chat_id, params, None)
             assert "Granted 'help' to group 'my_group'" in response
             mock_save.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_cmd_revoke():
@@ -108,47 +119,56 @@ async def test_cmd_revoke():
             assert "Revoked 'help' from user1" in response
             mock_save.assert_called_once()
 
+
 @pytest.mark.asyncio
 async def test_cmd_rmmember():
     chat_id = "test_chat"
     params = ["my_group", "user1"]
-    perms: Permissions = {"users": {}, "groups": {"my_group": {"members": ["user1"], "permissions": []}}}
+    perms: Permissions = {"users": {}, "groups": {
+        "my_group": {"members": ["user1"], "permissions": []}}}
     with patch("commands.load_permissions", return_value=perms):
         with patch("commands.save_permissions") as mock_save:
             response, _ = await cmd_rmmember(chat_id, params, None)
             assert "Removed user1 from group 'my_group'" in response
             mock_save.assert_called_once()
 
+
 @pytest.mark.asyncio
 async def test_cmd_revokegroup():
     chat_id = "test_chat"
     params = ["help", "my_group"]
-    perms: Permissions = {"users": {}, "groups": {"my_group": {"members": [], "permissions": ["help"]}}}
+    perms: Permissions = {"users": {}, "groups": {
+        "my_group": {"members": [], "permissions": ["help"]}}}
     with patch("commands.load_permissions", return_value=perms):
         with patch("commands.save_permissions") as mock_save:
             response, _ = await cmd_revokegroup(chat_id, params, None)
             assert "Revoked 'help' from group 'my_group'" in response
             mock_save.assert_called_once()
 
+
 @pytest.mark.asyncio
 async def test_cmd_rmgroup():
     chat_id = "test_chat"
     params = ["my_group"]
-    perms: Permissions = {"users": {}, "groups": {"my_group": {"members": [], "permissions": []}}}
+    perms: Permissions = {"users": {}, "groups": {
+        "my_group": {"members": [], "permissions": []}}}
     with patch("commands.load_permissions", return_value=perms):
         with patch("commands.save_permissions") as mock_save:
             response, _ = await cmd_rmgroup(chat_id, params, None)
             assert "Group 'my_group' deleted" in response
             mock_save.assert_called_once()
 
+
 @pytest.mark.asyncio
 async def test_cmd_lsperms():
     chat_id = "test_chat"
-    perms: Permissions = {"users": {"user1": ["help"]}, "groups": {"my_group": {"members": ["user1"], "permissions": ["help"]}}}
+    perms: Permissions = {"users": {"user1": ["help"]}, "groups": {
+        "my_group": {"members": ["user1"], "permissions": ["help"]}}}
     with patch("commands.load_permissions", return_value=perms):
         response, _ = await cmd_lsperms(chat_id, [], None)
         assert "user1: help" in response
         assert "my_group" in response
+
 
 @pytest.mark.asyncio
 async def test_cmd_lsdirs():
@@ -157,12 +177,14 @@ async def test_cmd_lsdirs():
         response, _ = await cmd_lsdirs(chat_id, [], None)
         assert "/tmp/chat" in response
 
+
 @pytest.mark.asyncio
 async def test_cmd_help():
     response, _ = await cmd_help("test_chat", [], None)
     for command in COMMANDS:
         assert command.name in response
         assert command.help_text in response
+
 
 @pytest.mark.asyncio
 async def test_cmd_showchatid():

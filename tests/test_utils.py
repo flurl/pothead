@@ -4,7 +4,7 @@ import json
 import shutil
 from collections import deque
 from unittest.mock import patch, mock_open
-from datatypes import Attachment, ChatMessage, Permissions
+from datatypes import Attachment, ChatMessage, MessageType, Permissions
 from utils import (
     get_safe_chat_dir,
     get_local_file_store_path,
@@ -22,7 +22,8 @@ from utils import (
 def test_get_safe_chat_dir():
     base_path = "/tmp"
     chat_id = "test_chat"
-    expected_path = os.path.join(base_path, "a8a556ee27e00844ef8f7df1579fea0a57a0fff0a3c2b8e80ae181b555e33c8e")
+    expected_path = os.path.join(
+        base_path, "a8a556ee27e00844ef8f7df1579fea0a57a0fff0a3c2b8e80ae181b555e33c8e")
     assert get_safe_chat_dir(base_path, chat_id) == expected_path
 
 
@@ -60,7 +61,8 @@ def test_load_permissions():
     chat_id = "test_chat"
     perms_file = get_permissions_file(chat_id)
     os.makedirs(os.path.dirname(perms_file), exist_ok=True)
-    perms_data = {"users": {"user1": ["command1"]}, "groups": {"ALL": {"members": [], "permissions": []}}}
+    perms_data = {"users": {"user1": ["command1"]}, "groups": {
+        "ALL": {"members": [], "permissions": []}}}
     with open(perms_file, "w") as f:
         json.dump(perms_data, f)
     loaded_perms = load_permissions(chat_id)
@@ -71,7 +73,8 @@ def test_load_permissions():
 
 def test_save_permissions():
     chat_id = "test_chat"
-    perms_data = {"users": {"user1": ["command1"]}, "groups": {"ALL": {"members": [], "permissions": []}}}
+    perms_data = {"users": {"user1": ["command1"]}, "groups": {
+        "ALL": {"members": [], "permissions": []}}}
     save_permissions(chat_id, perms_data)
     perms_file = get_permissions_file(chat_id)
     with open(perms_file, "r") as f:
@@ -96,7 +99,8 @@ def test_check_permission():
         assert check_permission(chat_id, sender, command)
 
     # Test group permission
-    perms = {"users": {}, "groups": {"group1": {"members": ["user1"], "permissions": ["command1"]}}}
+    perms = {"users": {}, "groups": {"group1": {
+        "members": ["user1"], "permissions": ["command1"]}}}
     with patch("utils.load_permissions", return_value=perms):
         assert check_permission(chat_id, sender, command)
 
@@ -113,7 +117,7 @@ def test_check_permission():
 
 def test_update_chat_history():
     chat_id = "test_chat"
-    msg = ChatMessage(source=chat_id, text="Hello")
+    msg = ChatMessage(source=chat_id, text="Hello", type=MessageType.CHAT)
     with patch("utils.CHAT_HISTORY", {}):
         with patch("utils.settings.history_max_length", 2):
             update_chat_history(msg)
@@ -125,7 +129,8 @@ def test_update_chat_history():
 
 def test_get_chat_id():
     # Test with group chat
-    data = {"params": {"envelope": {"dataMessage": {"groupInfo": {"groupId": "group123"}}}}}
+    data = {"params": {"envelope": {"dataMessage": {
+        "groupInfo": {"groupId": "group123"}}}}}
     assert get_chat_id(data) == "group123"
 
     # Test with direct message
@@ -133,12 +138,14 @@ def test_get_chat_id():
     assert get_chat_id(data) == "user123"
 
     # Test with sync message
-    data = {"params": {"envelope": {"syncMessage": {"sentMessage": {"groupInfo": {"groupId": "group456"}}}}}}
+    data = {"params": {"envelope": {"syncMessage": {
+        "sentMessage": {"groupInfo": {"groupId": "group456"}}}}}}
     assert get_chat_id(data) == "group456"
 
 
 def test_save_attachment():
-    att = Attachment(id="att1", filename="test.txt", content_type="text/plain", size=1)
+    att = Attachment(id="att1", filename="test.txt",
+                     content_type="text/plain", size=1)
     dest_dir = "/tmp/attachments"
     os.makedirs(dest_dir, exist_ok=True)
 

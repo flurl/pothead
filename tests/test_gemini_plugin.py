@@ -70,6 +70,7 @@ DATA_MESSAGE_DIRECT = {
         "envelope": {
             "source": "+12345", "sourceDevice": 1,
             "dataMessage": {
+                "timestamp": 1678886400000,
                 "message": "!ping How are you?",
                 "groupInfo": {}
             }
@@ -81,6 +82,7 @@ DATA_MESSAGE_GROUP = {
         "envelope": {
             "source": "+12345", "sourceDevice": 1,
             "dataMessage": {
+                "timestamp": 1678886400000,
                 "message": "!ping How are you?",
                 "groupInfo": {"groupId": "group123"}
             }

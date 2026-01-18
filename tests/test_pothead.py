@@ -9,12 +9,13 @@ from pothead import (
     fire_event,
     timer_loop,
     execute_command,
-    handle_history,
+    handle_incomming_message,
     process_incoming_line,
     main,
 )
 from datatypes import ChatMessage, Event, Command, Action
 from plugin_manager import load_plugins, PLUGIN_COMMANDS
+
 
 @pytest.mark.asyncio
 @patch('pothead.send_signal_message', new_callable=AsyncMock)
@@ -44,12 +45,11 @@ async def test_handle_command(mock_send_signal_message):
     ACTIONS.extend(plugin_manager.PLUGIN_ACTIONS)
     COMMANDS.extend(plugin_manager.PLUGIN_COMMANDS)
 
-
     # Sample incoming message data
     incoming_data = {
         "params": {
             "envelope": {
-                "source": "test", # Corresponds to POTHEAD_SUPERUSER env var
+                "source": "test",  # Corresponds to POTHEAD_SUPERUSER env var
                 "sourceDevice": 1,
                 "timestamp": 1678886400000,
                 "dataMessage": {
@@ -80,12 +80,14 @@ async def test_handle_command(mock_send_signal_message):
     assert sent_message.destination == "group123"
     assert sent_message.group_id == "group123"
 
+
 @pytest.mark.asyncio
 async def test_fire_event():
     mock_handler = AsyncMock()
     with patch("pothead.EVENT_HANDLERS", {Event.POST_STARTUP: [mock_handler]}):
         await fire_event(Event.POST_STARTUP)
         mock_handler.assert_awaited_once()
+
 
 @pytest.mark.asyncio
 async def test_timer_loop():
@@ -97,23 +99,29 @@ async def test_timer_loop():
             mock_fire_event.assert_awaited_once_with(Event.TIMER)
             assert mock_sleep.call_count == 2
 
+
 @pytest.mark.asyncio
 async def test_execute_command():
     mock_handler = AsyncMock(return_value=("Success!", []))
-    test_command = Command(name="testcmd", handler=mock_handler, help_text="A test command", origin="test")
+    test_command = Command(name="testcmd", handler=mock_handler,
+                           help_text="A test command", origin="test")
 
     with patch("pothead.COMMANDS", [test_command]):
         with patch("pothead.check_permission", return_value=True):
             response, _ = await execute_command("chat1", "user1", "testcmd", ["param1"], "prompt")
             assert response == "Success!"
-            mock_handler.assert_awaited_once_with("chat1", ["param1"], "prompt")
+            mock_handler.assert_awaited_once_with(
+                "chat1", ["param1"], "prompt")
+
 
 @pytest.mark.asyncio
-async def test_handle_history():
+async def test_handle_incomming_message():
     with patch("pothead.update_chat_history") as mock_update:
-        data = {"params": {"envelope": {"source": "user1", "dataMessage": {"message": "Hello"}}}}
-        await handle_history(data)
+        data = {"params": {"envelope": {"source": "user1",
+                                        "dataMessage": {"timestamp": 123456789, "message": "Hello"}}}}
+        await handle_incomming_message(data)
         mock_update.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_process_incoming_line_pending_reply():
@@ -121,6 +129,7 @@ async def test_process_incoming_line_pending_reply():
     with patch("pothead.PENDING_REPLIES", {"123": mock_callback}):
         await process_incoming_line('{"id": "123"}')
         mock_callback.assert_awaited_once()
+
 
 @pytest.mark.asyncio
 @patch("asyncio.create_subprocess_exec")

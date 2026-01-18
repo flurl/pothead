@@ -11,20 +11,25 @@ from datatypes import (
     Event,
 )
 
+
 def test_attachment_from_dict():
-    data = {"contentType": "image/png", "id": "123", "size": 1024, "filename": "test.png"}
+    data = {"contentType": "image/png", "id": "123",
+            "size": 1024, "filename": "test.png"}
     att = Attachment.from_dict(data)
     assert att.content_type == "image/png"
     assert att.id == "123"
     assert att.size == 1024
     assert att.filename == "test.png"
 
+
 def test_message_quote_from_dict():
-    data = {"id": 1, "author": "user1", "authorNumber": "123", "authorUuid": "abc", "text": "Hello"}
+    data = {"id": 1, "author": "user1", "authorNumber": "123",
+            "authorUuid": "abc", "text": "Hello"}
     quote = MessageQuote.from_dict(data)
     assert quote.id == 1
     assert quote.author == "user1"
     assert quote.text == "Hello"
+
 
 def test_chat_message_from_json():
     # Test with dataMessage
@@ -33,6 +38,7 @@ def test_chat_message_from_json():
             "envelope": {
                 "source": "user1",
                 "dataMessage": {
+                    "timestamp": 123456789,
                     "message": "Hello",
                     "groupInfo": {"groupId": "group1"},
                 },
@@ -52,6 +58,7 @@ def test_chat_message_from_json():
                 "source": "user1",
                 "syncMessage": {
                     "sentMessage": {
+                        "timestamp": 123456789,
                         "message": "World",
                         "destination": "user2",
                     }
@@ -64,6 +71,7 @@ def test_chat_message_from_json():
     assert msg.source == "user1"
     assert msg.text == "World"
     assert msg.destination == "user2"
+
 
 def test_action_matches():
     handler = AsyncMock()
@@ -79,13 +87,16 @@ def test_action_matches():
     data = {"params": {"message": "World"}}
     assert not action.matches(data)
 
+
 def test_command():
     handler = AsyncMock()
-    command = Command(name="test", handler=handler, help_text="A test command", origin="sys")
+    command = Command(name="test", handler=handler,
+                      help_text="A test command", origin="sys")
     assert command.name == "test"
     assert command.handler == handler
     assert command.help_text == "A test command"
     assert command.origin == "sys"
+
 
 def test_event_enum():
     assert Event.POST_STARTUP.value == "post_startup"

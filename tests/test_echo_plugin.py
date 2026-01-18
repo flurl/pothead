@@ -20,6 +20,7 @@ async def test_echo_handler(mock_send_signal_message):
                 "sourceDevice": 1,
                 "timestamp": 1678886400000,
                 "dataMessage": {
+                    "timestamp": 1678886400000,
                     "message": "Hello, world!",
                     "timestamp": 1678886400000,
                     "groupInfo": {

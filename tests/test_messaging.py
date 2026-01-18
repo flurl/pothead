@@ -3,7 +3,7 @@ import asyncio
 import json
 from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
-from datatypes import ChatMessage
+from datatypes import ChatMessage, MessageType
 from messaging import (
     send_signal_direct_message,
     send_signal_group_message,
@@ -11,6 +11,7 @@ from messaging import (
     get_group_info,
     set_signal_process,
 )
+
 
 @pytest.mark.asyncio
 async def test_send_signal_direct_message():
@@ -22,6 +23,7 @@ async def test_send_signal_direct_message():
         assert sent_msg.text == "Hello"
         assert sent_msg.destination == "user1"
 
+
 @pytest.mark.asyncio
 async def test_send_signal_group_message():
     with patch("messaging.send_signal_message", new_callable=AsyncMock) as mock_send:
@@ -32,6 +34,7 @@ async def test_send_signal_group_message():
         assert sent_msg.text == "Hello"
         assert sent_msg.group_id == "group1"
 
+
 @pytest.mark.asyncio
 async def test_send_signal_message():
     mock_proc = AsyncMock()
@@ -39,7 +42,8 @@ async def test_send_signal_message():
     mock_proc.stdin.drain = AsyncMock()
     set_signal_process(mock_proc)
 
-    msg = ChatMessage(source="Assistant", destination="user1", text="Hello")
+    msg = ChatMessage(source="Assistant", destination="user1",
+                      text="Hello", type=MessageType.CHAT)
     await send_signal_message(msg)
 
     mock_proc.stdin.write.assert_called_once()
@@ -48,6 +52,7 @@ async def test_send_signal_message():
     assert rpc_request["method"] == "send"
     assert rpc_request["params"]["recipient"] == ["user1"]
     mock_proc.stdin.drain.assert_awaited_once()
+
 
 @pytest.mark.asyncio
 async def test_get_group_info():

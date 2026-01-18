@@ -30,9 +30,9 @@ from google.genai.client import Client
 from google.genai import types
 from google.genai.pagers import Pager
 
-from datatypes import Attachment, ChatMessage, Priority
+from datatypes import Attachment, ChatMessage, MessageType, Priority, SignalMessage
 from messaging import send_signal_direct_message, send_signal_group_message
-from plugin_manager import get_plugin_settings, register_action, register_command
+from plugin_manager import get_plugin_settings, register_action, register_command, register_service
 from state import CHAT_HISTORY
 from utils import get_local_files, get_safe_chat_dir, update_chat_history
 
@@ -149,6 +149,47 @@ class GeminiProvider:
 gemini = GeminiProvider(api_key=plugin_settings.gemini_api_key)
 
 
+async def process_gemini_message(msg: ChatMessage, prompt: str | None = None) -> None:
+    """
+    Processes a message with Gemini, sends the response, and updates history.
+
+    :param msg: The incoming chat message.
+    :param prompt: The specific prompt text to send. If None, uses msg.text.
+                   If msg.quote exists, it is appended.
+    """
+    # Determine the base prompt text
+    text_to_process: str = prompt if prompt is not None else (msg.text or "")
+
+    # Append quote to prompt if it exists
+    full_prompt: str = text_to_process
+    if msg.quote and msg.quote.text:
+        full_prompt = f"{full_prompt}\n\n>> {msg.quote.text}"
+
+    logger.info(
+        f"Processing Gemini request from {msg.source} in {msg.chat_id}")
+
+    if not full_prompt and not msg.attachments:
+        response_text = "🤖 Beep Boop. Please provide a prompt."
+    else:
+        # Note: We aren't sending attachments to Gemini in get_response yet.
+        # If your GeminiProvider supports images, pass ctx.attachments there.
+        response_text: str = await gemini.get_response(msg.chat_id, full_prompt)
+
+    update_chat_history(ChatMessage(source="Assistant",
+                        destination=msg.chat_id, text=response_text, type=MessageType.CHAT))
+    if msg.group_id:
+        await send_signal_group_message(response_text, msg.group_id)
+    else:
+        # For direct messages, the recipient of the reply is the original source
+        await send_signal_direct_message(response_text, msg.source)
+
+
+@register_service("send_to_ai")
+async def send_to_ai(msg: ChatMessage) -> bool:
+    await process_gemini_message(msg)
+    return True
+
+
 @register_action(
     "gemini",
     name="Handle Gemini in Sync Message",
@@ -168,15 +209,17 @@ gemini = GeminiProvider(api_key=plugin_settings.gemini_api_key)
 async def action_send_to_gemini(data: dict[str, Any]) -> bool:
     """Handles AI prompts."""
     # ctx: MessageContext | None = extract_message_context(data)
-    msg: ChatMessage | None = ChatMessage.from_json(data)
-    if not msg:
+    msg: SignalMessage | None = SignalMessage.from_json(data)
+    if msg and msg.type == MessageType.CHAT:
+        msg = cast(ChatMessage, msg)
+    else:
         return False
 
     # Check Prefixes
     clean_msg: str = msg.text and msg.text.strip() or ""
     prompt: str | None = None
 
-    # Sort triggers by length to match longest first ("!gemini" before "!")
+    # Sort triggers by length to match longest first ("!pothead" before "!pot")
     for tw in sorted(settings.trigger_words, key=len, reverse=True):
         if clean_msg.upper().startswith(tw.upper()):
             content: str = clean_msg[len(tw):].strip()
@@ -193,31 +236,7 @@ async def action_send_to_gemini(data: dict[str, Any]) -> bool:
     if prompt is None and not msg.attachments:
         return False
 
-    # Log to local history
-    # update_chat_history(ctx.chat_id, ctx.source, ctx.body, ctx.attachments)
-
-    # Append quote to prompt if it exists
-    full_prompt: str = prompt or ""
-    if msg.quote and msg.quote.text:
-        full_prompt = f"{full_prompt}\n\n>> {msg.quote.text}"
-
-    logger.info(
-        f"Processing Gemini request from {msg.source} in {msg.chat_id}")
-
-    if not full_prompt and not msg.attachments:
-        response_text = "🤖 Beep Boop. Please provide a prompt."
-    else:
-        # Note: We aren't sending attachments to Gemini in get_response yet.
-        # If your GeminiProvider supports images, pass ctx.attachments there.
-        response_text: str = await gemini.get_response(msg.chat_id, full_prompt)
-
-    update_chat_history(ChatMessage(source="Assistant",
-                        destination=msg.chat_id, text=response_text))
-    if msg.group_id:
-        await send_signal_group_message(response_text, msg.group_id)
-    else:
-        # For direct messages, the recipient of the reply is the original source
-        await send_signal_direct_message(response_text, msg.source)
+    await process_gemini_message(msg, prompt)
     return True
 
 
