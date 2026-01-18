@@ -1,0 +1,2 @@
+auto_chat_ids = []
+wait_after_message_from_self = 300

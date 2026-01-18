@@ -1,0 +1,5 @@
+id = "ai_autoresponder"
+name = "AI autoresponder plugin"
+description = "A plugin that automatically send messages to an AI provider and returns the response"
+version = "0.1.0"
+author = "Pothead-Dev"
