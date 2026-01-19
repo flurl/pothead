@@ -9,6 +9,48 @@ Pothead is a bot that uses `signal-cli` to interact with the Signal messaging se
 - **Plugin System:** Extend the bot's functionality by creating plugins.
 - **Event-driven:** Responds to system events like startup, shutdown, and a periodic timer.
 
+
+## Dependencies
+
+- `google-genai>=0.0.1`
+- `pydantic-settings`
+- `jsonpath_ng`
+- `signal-cli`
+
+
+## Installation
+
+```bash
+git clone https://github.com/flurl/pothead.git
+cd pothead
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+You also need `signal-cli` https://github.com/AsamK/signal-cli and  the `libsignal-client` library https://github.com/AsamK/signal-cli/wiki/Provide-native-lib-for-libsignal 
+If you're on x86 you can propably use a precompiled package but on a Raspberry Pi I had to do the following:
+
+```bash
+sudo apt install default-jdk cmake libclang-dev protobuf-compiler
+# install rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+git clone https://github.com/signalapp/libsignal.git
+cd libsignal/java
+./build_jni.sh desktop
+./gradlew --no-daemon :client:assemble -PskipAndroid=true
+cd ../..
+git clone https://github.com/AsamK/signal-cli.git
+cd signal-cli
+./gradlew -Plibsignal_client_path="/home/flurl/bin/pothead/libsignal/java/client/build/libs/libsignal-client-0.86.11.jar" build
+./gradlew -Plibsignal_client_path="/home/flurl/bin/pothead/libsignal/java/client/build/libs/libsignal-client-0.86.11.jar" installDist
+```
+
+After that you should find the `signal-cli` script under `signal-cli/build/install/signal-cli/bin/signal-cli`.
+
+Finally you must link `signal-cli` to your signal account - see https://github.com/AsamK/signal-cli/wiki/Linking-other-devices-(Provisioning). 
+
+
 ## Configuration
 
 The bot is configured through the `pothead.toml` file or by setting environment variables.
@@ -23,12 +65,6 @@ The bot is configured through the `pothead.toml` file or by setting environment 
 | `POTHEAD_LOG_LEVEL`         | `log_level`               | Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) | `INFO`                                |
 | `POTHEAD_ENABLED_PLUGINS`   | `enabled_plugins`         | A list of plugins to load.                       | `[]`                                  |
 
-
-## Dependencies
-
-- `google-genai>=0.0.1`
-- `pydantic-settings`
-- `jsonpath_ng`
 
 ## Usage
 
