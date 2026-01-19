@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     history_max_length: int = 30
     log_level: str = "INFO"
     enabled_plugins: list[str] = []
-    settle_time: int = Field(
-        default=30, description="Seconds to wait until processing of incoming messages starts")
+    ignore_messages_older_than: int = Field(
+        default=30, description="Discard messages older than this many seconds")
     message_prefix: str = Field(
         default="", description="Prefix to prepend to all messages sent by the bot")
 

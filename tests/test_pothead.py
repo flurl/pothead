@@ -1,6 +1,7 @@
 
 import asyncio
 import json
+import time
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from pothead import (
@@ -51,10 +52,10 @@ async def test_handle_command(mock_send_signal_message):
             "envelope": {
                 "source": "test",  # Corresponds to POTHEAD_SUPERUSER env var
                 "sourceDevice": 1,
-                "timestamp": 1678886400000,
+                "timestamp": time.time() * 1000,
                 "dataMessage": {
                     "message": "!pot#ping",
-                    "timestamp": 1678886400000,
+                    "timestamp": time.time() * 1000,
                     "groupInfo": {
                         "groupId": "group123"
                     }
@@ -118,7 +119,7 @@ async def test_execute_command():
 async def test_handle_incomming_message():
     with patch("pothead.update_chat_history") as mock_update:
         data = {"params": {"envelope": {"source": "user1",
-                                        "dataMessage": {"timestamp": 123456789, "message": "Hello"}}}}
+                                        "dataMessage": {"timestamp": time.time() * 1000, "message": "Hello"}}}}
         await handle_incomming_message(data)
         mock_update.assert_called_once()
 
@@ -189,12 +190,12 @@ async def test_handle_command_with_quote(mock_send_signal_message):
                 "source": "test",
                 "dataMessage": {
                     "message": "!pot#echo",
-                    "timestamp": 1678886400000,
+                    "timestamp": time.time() * 1000,
                     "groupInfo": {
                         "groupId": "group123"
                     },
                     "quote": {
-                        "id": 1678886300000,
+                        "id": time.time() * 1000,
                         "author": "+123456789",
                         "text": "This is quoted text."
                     }

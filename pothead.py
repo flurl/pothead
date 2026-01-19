@@ -28,8 +28,8 @@ import asyncio
 from asyncio.subprocess import Process
 import json
 import logging
-import math
 import sys
+import time
 from typing import Any, cast
 
 from jsonpath_ng.jsonpath import DatumInContext
@@ -145,9 +145,16 @@ async def handle_command(data: dict[str, Any]) -> bool:
 
 async def handle_incomming_message(data: dict[str, Any]) -> bool:
     msg: SignalMessage | None = SignalMessage.from_json(data)
-    if msg and msg.type == MessageType.CHAT:
-        update_chat_history(cast(ChatMessage, msg))
-        await fire_event(Event.CHAT_MESSAGE_RECEIVED, msg)
+    if msg:
+        # Ignore messages older than ignore_messages_older_than secs
+        if (time.time() * 1000) - msg.timestamp > settings.ignore_messages_older_than * 1000:
+            logger.debug(
+                f"Ignoring old message from {msg.source} (timestamp: {msg.timestamp})")
+            return True
+
+        if msg.type == MessageType.CHAT:
+            update_chat_history(cast(ChatMessage, msg))
+            await fire_event(Event.CHAT_MESSAGE_RECEIVED, msg)
     # always return false so that the message is further processed
     return False
 
@@ -212,16 +219,6 @@ async def process_incoming_line(line: str) -> None:
                 return
 
 
-async def settle_countdown(start_time: float):
-    while (asyncio.get_running_loop().time() - start_time) < settings.settle_time:
-        remaining_time: int = math.ceil(
-            settings.settle_time - (asyncio.get_running_loop().time() - start_time))
-        logger.info(
-            f"Settling for {remaining_time} seconds more...")
-        await asyncio.sleep(1)
-    logger.info("Settle time over - going to work")
-
-
 async def main() -> None:
     # Load plugins before starting the main loop
     load_plugins()
@@ -249,11 +246,6 @@ async def main() -> None:
     await fire_event(Event.POST_STARTUP)
     logger.info("Listening for messages...")
 
-    start_time: float = asyncio.get_running_loop().time()
-    # start settle_countdown as a task
-    settle_task: asyncio.Task[None] = asyncio.create_task(
-        settle_countdown(start_time))
-
     try:
         while True:
             assert proc.stdout is not None
@@ -265,10 +257,6 @@ async def main() -> None:
 
             decoded_line: str = line.decode('utf-8').strip()
             if decoded_line:
-                if (asyncio.get_running_loop().time() - start_time) < settings.settle_time:
-                    logger.debug(f"Settling... ignoring line: {decoded_line}")
-                    continue
-
                 # Process each line asynchronously so we don't block reading
                 asyncio.create_task(process_incoming_line(decoded_line))
 
@@ -276,7 +264,6 @@ async def main() -> None:
         pass
     finally:
         timer_task.cancel()
-        settle_task.cancel()
         await fire_event(Event.PRE_SHUTDOWN)
         if proc.returncode is None:
             proc.terminate()
