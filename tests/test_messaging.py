@@ -10,7 +10,9 @@ from messaging import (
     send_signal_message,
     get_group_info,
     set_signal_process,
+    parse_markdown,
 )
+from config import settings
 
 
 @pytest.mark.asyncio
@@ -75,3 +77,45 @@ async def test_get_group_info():
         assert rpc_request["params"]["groupId"] == "group1"
         assert rpc_request["id"] == request_id
         mock_proc.stdin.drain.assert_awaited_once()
+
+
+def test_parse_markdown():
+    # Test simple bold
+    text, styles = parse_markdown("Hello **World**")
+    assert text == "Hello World"
+    assert styles == ["6:5:BOLD"]
+
+    # Test multiple styles
+    text, styles = parse_markdown("`Code` and *Italic*")
+    assert text == "Code and Italic"
+    assert "0:4:MONOSPACE" in styles
+    assert "9:6:ITALIC" in styles
+
+    # Test nested styles
+    text, styles = parse_markdown("**Bold *Italic***")
+    assert text == "Bold Italic"
+    assert "0:11:BOLD" in styles
+    assert "5:6:ITALIC" in styles
+
+
+@pytest.mark.asyncio
+async def test_send_signal_message_with_formatting():
+    mock_proc = AsyncMock()
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdin.drain = AsyncMock()
+    set_signal_process(mock_proc)
+
+    msg = ChatMessage(source="Assistant", destination="user1",
+                      text="Hello **World**", type=MessageType.CHAT)
+    await send_signal_message(msg)
+
+    mock_proc.stdin.write.assert_called_once()
+    written_data = mock_proc.stdin.write.call_args[0][0]
+    rpc_request = json.loads(written_data)
+
+    assert rpc_request["method"] == "send"
+    assert rpc_request["params"]["recipient"] == ["user1"]
+    assert rpc_request["params"]["message"] == f"{settings.message_prefix}Hello World"
+    # Check if textStyle is set correctly for a single style
+    prefix_length: int = len(settings.message_prefix)
+    assert rpc_request["params"]["textStyle"] == f"{6+prefix_length}:5:BOLD"

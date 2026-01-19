@@ -28,7 +28,13 @@ history_max_length = 30
 # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 log_level = "INFO"
 
-enabled_plugins = ["gemini", "welcome", "cron", "filesender"] #, "echo"]
+enabled_plugins = [
+    "gemini",
+    "welcome",
+    "cron",
+    "filesender",
+    "ai_autoresponder",
+] #, "echo"]
 
 ignore_messages_older_than = 30 # seconds
 

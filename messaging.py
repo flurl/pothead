@@ -9,8 +9,10 @@ protocol details required to interact with `signal-cli`.
 
 import json
 import logging
+import re
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from asyncio.subprocess import Process
@@ -21,6 +23,59 @@ from plugin_manager import PENDING_REPLIES
 logger: logging.Logger = logging.getLogger(__name__)
 
 signal_process: Process | None = None
+
+
+@dataclass
+class StyleSpan:
+    start: int
+    length: int
+    style: str
+
+
+def parse_markdown(text: str) -> tuple[str, list[str]]:
+    active_styles: list[StyleSpan] = []
+
+    # Patterns: Monospace, Bold, Italic
+    patterns: list[tuple[str, str, int]] = [
+        (r"`(.*?)`", "MONOSPACE", 1),
+        (r"\*\*(.*?)\*\*", "BOLD", 2),
+        (r"\*(.*?)\*", "ITALIC", 1)
+    ]
+
+    for pattern, style_name, marker_len in patterns:
+        while True:
+            match: re.Match[str] | None = re.search(
+                pattern, text, flags=re.DOTALL)
+            if not match:
+                break
+
+            start: int = match.start()
+            end: int = match.end()
+            content: str | Any = match.group(1)
+            content_len: int = len(content)
+
+            # Update OLD styles for Left Marker removal
+            for s in active_styles:
+                if start < s.start:
+                    s.start -= marker_len
+                elif start < s.start + s.length:
+                    s.length -= marker_len
+
+            # Update OLD styles for Right Marker removal
+            right_marker_pos: int = end - 2 * marker_len
+            for s in active_styles:
+                if right_marker_pos < s.start:
+                    s.start -= marker_len
+                elif right_marker_pos < s.start + s.length:
+                    s.length -= marker_len
+
+            # Add NEW style
+            active_styles.append(StyleSpan(start, content_len, style_name))
+
+            # Update text
+            text = text[:start] + content + text[end:]
+
+    return text, [f"{s.start}:{s.length}:{s.style}" for s in active_styles]
 
 
 def set_signal_process(proc: Process) -> None:
@@ -73,12 +128,21 @@ async def send_signal_message(
     recipient: str | None = msg.destination
     group_id: str | None = msg.group_id
 
-    message = settings.message_prefix + (message if message else "")
+    raw_message: str = settings.message_prefix + (message if message else "")
+    clean_message: str
+    styles: list[str]
+    clean_message, styles = parse_markdown(raw_message)
 
     params: dict[str, Any] = {
         "account": settings.signal_account,
-        "message": message
+        "message": clean_message
     }
+
+    if styles:
+        if len(styles) == 1:
+            params["textStyle"] = styles[0]
+        else:
+            params["textStyles"] = styles
 
     if group_id:
         params["groupId"] = group_id
