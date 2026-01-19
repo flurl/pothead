@@ -54,14 +54,17 @@ Pothead supports a plugin architecture to extend its functionality. To create a 
 
 Each plugin can have its own configuration. Plugins should look for a `config.toml` file within their directory (e.g., `plugins/myplugin/config.toml`). This allows for modular configuration management.
 
-### Enabled Plugins
+### Available Plugins
 
-The following plugins are available (but must be enabled in `pothead.toml`):
+Pothead comes with several built-in plugins. Each plugin has its own documentation in its respective directory:
 
-- `gemini`: Interacts with the Google Gemini model.
-- `welcome`: Sends a welcome message to new users.
-- `cron`: Schedules tasks to run at a specific time.
-- `filesender`: Sends files to users.
-- `echo`: A simple plugin that echoes back messages (useful for testing).
+- [**AI Autoresponder**](plugins/ai_autoresponder/README.md): Automatically responds to messages in specific chats using AI.
+- [**Cron**](plugins/cron/README.md): Provides a scheduling service for other plugins.
+- [**Echo**](plugins/echo/README.md): A simple utility plugin that echoes messages back.
+- [**FileSender**](plugins/filesender/README.md): Schedules the sending of text file contents.
+- [**Gemini**](plugins/gemini/README.md): Integrates with Google's Gemini AI for chat and RAG.
+- [**Welcome**](plugins/welcome/README.md): Sends welcome messages to new group members.
 
-For more details on each plugin, please refer to the plugin's source code. The `echo` plugin is a good starting point for learning how to build plugins.
+To enable a plugin, add its name to the `enabled_plugins` list in `pothead.toml`.
+
+For more details on each plugin, please refer to their individual README files. The [**Echo**](plugins/echo/README.md) plugin is a good starting point for learning how to build your own plugins.
