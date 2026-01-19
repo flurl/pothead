@@ -19,7 +19,7 @@ The Gemini plugin integrates Pothead with the Google Gemini API, providing advan
 ## Configuration
 
 - `gemini_api_key`: Your Google Gemini API key.
-- `gemini_model_name`: The Gemini model to use (default: `gemini-2.0-flash`).
+- `gemini_model_name`: The Gemini model to use.
 - `system_instruction`: Instructions that guide the AI's behavior.
 
 ## AI Chat
