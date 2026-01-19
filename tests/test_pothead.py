@@ -86,8 +86,8 @@ async def test_handle_command(mock_send_signal_message):
 async def test_fire_event():
     mock_handler = AsyncMock()
     with patch("pothead.EVENT_HANDLERS", {Event.POST_STARTUP: [mock_handler]}):
-        await fire_event(Event.POST_STARTUP)
-        mock_handler.assert_awaited_once()
+        await fire_event(Event.POST_STARTUP, "arg1", kwarg1="val1")
+        mock_handler.assert_awaited_once_with("arg1", kwarg1="val1")
 
 
 @pytest.mark.asyncio
@@ -118,10 +118,29 @@ async def test_execute_command():
 @pytest.mark.asyncio
 async def test_handle_incomming_message():
     with patch("pothead.update_chat_history") as mock_update:
-        data = {"params": {"envelope": {"source": "user1",
-                                        "dataMessage": {"timestamp": time.time() * 1000, "message": "Hello"}}}}
-        await handle_incomming_message(data)
-        mock_update.assert_called_once()
+        with patch("pothead.fire_event", new_callable=AsyncMock) as mock_fire:
+            data = {"params": {"envelope": {"source": "user1",
+                                            "dataMessage": {"timestamp": time.time() * 1000, "message": "Hello"}}}}
+            await handle_incomming_message(data)
+            mock_update.assert_called_once()
+            mock_fire.assert_awaited_once()
+            call_args = mock_fire.call_args
+            assert call_args[0][0] == Event.CHAT_MESSAGE_RECEIVED
+            assert isinstance(call_args[0][1], ChatMessage)
+            assert call_args[0][1].text == "Hello"
+
+
+@pytest.mark.asyncio
+async def test_handle_incomming_message_old():
+    from config import settings
+    with patch("pothead.update_chat_history") as mock_update:
+        with patch("pothead.fire_event", new_callable=AsyncMock) as mock_fire:
+            old_timestamp = (time.time() - settings.ignore_messages_older_than - 10) * 1000
+            data = {"params": {"envelope": {"source": "user1",
+                                            "dataMessage": {"timestamp": old_timestamp, "message": "Old"}}}}
+            await handle_incomming_message(data)
+            mock_update.assert_not_called()
+            mock_fire.assert_not_called()
 
 
 @pytest.mark.asyncio

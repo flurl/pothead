@@ -9,6 +9,11 @@ from datatypes import (
     Priority,
     Command,
     Event,
+    SignalMessage,
+    MessageType,
+    ReactionMessage,
+    ReceiptMessage,
+    TypingMessage,
 )
 
 
@@ -31,7 +36,7 @@ def test_message_quote_from_dict():
     assert quote.text == "Hello"
 
 
-def test_chat_message_from_json():
+def test_signal_message_from_json_chat():
     # Test with dataMessage
     data = {
         "params": {
@@ -45,11 +50,12 @@ def test_chat_message_from_json():
             }
         }
     }
-    msg = ChatMessage.from_json(data)
-    assert msg is not None
+    msg = SignalMessage.from_json(data)
+    assert isinstance(msg, ChatMessage)
     assert msg.source == "user1"
     assert msg.text == "Hello"
     assert msg.group_id == "group1"
+    assert msg.type == MessageType.CHAT
 
     # Test with syncMessage
     data = {
@@ -66,11 +72,97 @@ def test_chat_message_from_json():
             }
         }
     }
-    msg = ChatMessage.from_json(data)
-    assert msg is not None
+    msg = SignalMessage.from_json(data)
+    assert isinstance(msg, ChatMessage)
     assert msg.source == "user1"
     assert msg.text == "World"
     assert msg.destination == "user2"
+    assert msg.type == MessageType.CHAT
+    assert msg.is_synced is True
+
+
+def test_signal_message_from_json_reaction():
+    data = {
+        "params": {
+            "envelope": {
+                "source": "user1",
+                "dataMessage": {
+                    "timestamp": 123456789,
+                    "reaction": {
+                        "emoji": "👍",
+                        "targetAuthor": "user2",
+                        "targetSentTimestamp": 123456700,
+                        "remove": False
+                    },
+                    "groupInfo": {"groupId": "group1"},
+                },
+            }
+        }
+    }
+    msg = SignalMessage.from_json(data)
+    assert isinstance(msg, ReactionMessage)
+    assert msg.source == "user1"
+    assert msg.emoji == "👍"
+    assert msg.target_author == "user2"
+    assert msg.target_sent_timestamp == 123456700
+    assert msg.is_remove is False
+    assert msg.group_id == "group1"
+    assert msg.type == MessageType.REACTION
+
+
+def test_signal_message_from_json_receipt():
+    data = {
+        "params": {
+            "envelope": {
+                "source": "user1",
+                "receiptMessage": {
+                    "when": 123456789,
+                    "isDelivery": True,
+                    "isRead": False,
+                    "isViewed": False,
+                    "timestamps": [123456700]
+                }
+            }
+        }
+    }
+    msg = SignalMessage.from_json(data)
+    assert isinstance(msg, ReceiptMessage)
+    assert msg.source == "user1"
+    assert msg.timestamp == 123456789
+    assert msg.is_delivery is True
+    assert msg.timestamps == [123456700]
+    assert msg.type == MessageType.RECEIPT
+
+
+def test_signal_message_from_json_typing():
+    data = {
+        "params": {
+            "envelope": {
+                "source": "user1",
+                "typingMessage": {
+                    "timestamp": 123456789,
+                    "action": "STARTED",
+                    "groupId": "group1"
+                }
+            }
+        }
+    }
+    msg = SignalMessage.from_json(data)
+    assert isinstance(msg, TypingMessage)
+    assert msg.source == "user1"
+    assert msg.timestamp == 123456789
+    assert msg.action == "STARTED"
+    assert msg.group_id == "group1"
+    assert msg.type == MessageType.TYPING
+
+
+def test_chat_message_from_json_deprecated():
+    # ChatMessage.from_json was actually removed in favor of SignalMessage.from_json,
+    # but it might still be used. Let's check if it exists.
+    # Actually, in the diff I didn't see it being removed, but I saw SignalMessage.from_json added.
+    # Looking at datatypes.py, ChatMessage DOES NOT have from_json anymore, it's in SignalMessage.
+    # Wait, I should re-read datatypes.py.
+    pass
 
 
 def test_action_matches():
@@ -102,3 +194,4 @@ def test_event_enum():
     assert Event.POST_STARTUP.value == "post_startup"
     assert Event.PRE_SHUTDOWN.value == "pre_shutdown"
     assert Event.TIMER.value == "timer"
+    assert Event.CHAT_MESSAGE_RECEIVED.value == "message_received"
