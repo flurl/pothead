@@ -75,7 +75,15 @@ def parse_markdown(text: str) -> tuple[str, list[str]]:
             # Update text
             text = text[:start] + content + text[end:]
 
-    return text, [f"{s.start}:{s.length}:{s.style}" for s in active_styles]
+    # Convert to UTF-16 indices for signal-cli
+    final_styles: list[str] = []
+    for s in active_styles:
+        utf16_start = len(text[:s.start].encode("utf-16-le")) // 2
+        utf16_length = len(
+            text[s.start: s.start + s.length].encode("utf-16-le")) // 2
+        final_styles.append(f"{utf16_start}:{utf16_length}:{s.style}")
+
+    return text, final_styles
 
 
 def set_signal_process(proc: Process) -> None:

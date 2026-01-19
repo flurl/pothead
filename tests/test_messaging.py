@@ -98,6 +98,15 @@ def test_parse_markdown():
     assert "5:6:ITALIC" in styles
 
 
+def test_parse_markdown_with_emojis():
+    # Test with emoji (surrogate pair in UTF-16)
+    # 😀 is 1 char in Python but 2 chars in UTF-16
+    text, styles = parse_markdown("😀 **Bold**")
+    assert text == "😀 Bold"
+    # Start should be 3 (2 for emoji + 1 for space), Length 4
+    assert styles == ["3:4:BOLD"]
+
+
 @pytest.mark.asyncio
 async def test_send_signal_message_with_formatting():
     mock_proc = AsyncMock()

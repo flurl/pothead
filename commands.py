@@ -363,7 +363,7 @@ async def cmd_help(chat_id: str, params: list[str], prompt: str | None) -> tuple
     for origin, cmds in sorted(by_origin.items()):
         response_lines.append(f"\n{origin.upper()}:")
         for cmd in cmds:
-            response_lines.append(f"  • {cmd.name}: {cmd.help_text}")
+            response_lines.append(f"  • **{cmd.name}**: {cmd.help_text}")
     return "\n".join(response_lines), []
 
 
