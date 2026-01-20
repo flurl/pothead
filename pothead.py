@@ -162,6 +162,10 @@ async def handle_incomming_message(data: dict[str, Any]) -> bool:
         elif msg.type == MessageType.DELETE:
             update_chat_history(msg)
             await fire_event(Event.CHAT_MESSAGE_DELETED, msg)
+        elif msg.type == MessageType.GROUP_UPDATE:
+            await fire_event(Event.GROUP_UPDATE, msg)
+    else:
+        logger.debug(f"Ignoring unknown message: {data}")
 
     # always return false so that the message is further processed
     return False

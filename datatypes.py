@@ -480,3 +480,4 @@ class Event(Enum):
     CHAT_MESSAGE_RECEIVED = "message_received"
     CHAT_MESSAGE_EDITED = "message_edited"
     CHAT_MESSAGE_DELETED = "message_deleted"
+    GROUP_UPDATE = "group_update"
