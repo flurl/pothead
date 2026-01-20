@@ -59,8 +59,8 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 async def fire_event(event: Event, *args: Any, **kwargs: Any) -> None:
     """Fires an event and runs all registered handlers."""
+    logger.info(f"Firing event: {event}")
     if event in EVENT_HANDLERS:
-        logger.info(f"Firing event: {event}")
         for handler in EVENT_HANDLERS[event]:
             try:
                 await handler(*args, **kwargs)
@@ -153,8 +153,16 @@ async def handle_incomming_message(data: dict[str, Any]) -> bool:
             return True
 
         if msg.type == MessageType.CHAT:
-            update_chat_history(cast(ChatMessage, msg))
+            update_chat_history(msg)
             await fire_event(Event.CHAT_MESSAGE_RECEIVED, msg)
+        elif msg.type == MessageType.EDIT:
+            print(msg)
+            update_chat_history(msg)
+            await fire_event(Event.CHAT_MESSAGE_EDITED, msg)
+        elif msg.type == MessageType.DELETE:
+            update_chat_history(msg)
+            await fire_event(Event.CHAT_MESSAGE_DELETED, msg)
+
     # always return false so that the message is further processed
     return False
 

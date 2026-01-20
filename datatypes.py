@@ -100,6 +100,9 @@ class MessageType(Enum):
     REACTION = "reaction"
     RECEIPT = "receipt"
     TYPING = "typing"
+    GROUP_UPDATE = "group_update"
+    EDIT = "edit"
+    DELETE = "delete"
     UNKNOWN = "unknown"
 
 
@@ -146,11 +149,15 @@ class SignalMessage:
             if "sentMessage" in envelope["syncMessage"]:
                 sent_message: dict[str,
                                    Any] = envelope["syncMessage"]["sentMessage"]
+                if "editMessage" in sent_message:
+                    return EditMessage.parse_edit_message(sent_message, source, is_synced=True)
                 return ChatMessage.parse_message(sent_message, source, is_synced=True)
         elif "receiptMessage" in envelope:
             return ReceiptMessage.parse_receipt_message(envelope, source)
         elif "typingMessage" in envelope:
             return TypingMessage.parse_typing_message(envelope, source)
+        elif "editMessage" in envelope:
+            return EditMessage.parse_edit_message(envelope, source, is_synced=False)
 
         return None
 
@@ -207,13 +214,37 @@ class ChatMessage(SignalMessage):
         if timestamp is None:
             return None
 
-        if "reaction" in message_body:
-            return ReactionMessage.parse_reaction(message_body, source, timestamp, MessageType.REACTION)
-
         group_id: str | None = message_body.get("groupInfo", {}).get("groupId")
         destination: str | None = message_body.get("destination")
         if not destination:
             destination = group_id
+
+        if "reaction" in message_body:
+            return ReactionMessage.parse_reaction(message_body, source, timestamp, MessageType.REACTION)
+
+        if "remoteDelete" in message_body:
+            return DeleteMessage(
+                source=source,
+                destination=destination,
+                type=MessageType.DELETE,
+                timestamp=timestamp,
+                group_id=message_body.get("groupInfo", {}).get("groupId"),
+                is_synced=is_synced,
+                target_sent_timestamp=message_body["remoteDelete"].get(
+                    "timestamp", 0)
+            )
+
+        if message_body.get("message") is None and message_body.get("groupInfo", {}).get("type") == "UPDATE":
+            group_info: dict[str, Any] = message_body.get("groupInfo", {})
+            return GroupUpdateMessage(
+                source=source,
+                type=MessageType.GROUP_UPDATE,
+                timestamp=timestamp,
+                group_id=group_info.get("groupId"),
+                is_synced=is_synced,
+                group_name=group_info.get("groupName"),
+                revision=group_info.get("revision", 0)
+            )
 
         text: str | None = message_body.get("message")
         attachments: list[Attachment] = [Attachment.from_dict(
@@ -223,6 +254,68 @@ class ChatMessage(SignalMessage):
             raw_quote) if raw_quote else None
 
         return cls(source=source, type=MessageType.CHAT, timestamp=timestamp, group_id=group_id, destination=destination, text=text, attachments=attachments, quote=quote, is_synced=is_synced)
+
+
+@dataclass
+class EditMessage(ChatMessage):
+    target_sent_timestamp: int = 0
+
+    @classmethod
+    def parse_edit_message(cls, msg_dict: dict[str, Any], source: str, is_synced: bool) -> "EditMessage | None":
+        edit_dict: dict[str, Any] | None = msg_dict.get("editMessage")
+        if edit_dict is None:
+            return None
+        destination: str | None = msg_dict.get("destination")
+
+        target_timestamp: int | None = edit_dict.get("targetSentTimestamp")
+        if target_timestamp is None:
+            return None
+
+        data_message: dict[str, Any] = edit_dict.get("dataMessage", {})
+        timestamp: int | None = data_message.get("timestamp")
+        if timestamp is None:
+            return None
+
+        text: str | None = data_message.get("message")
+        attachments: list[Attachment] = [Attachment.from_dict(
+            a) for a in data_message.get("attachments", [])]
+        raw_quote: dict[str, Any] | None = data_message.get("quote")
+        quote: MessageQuote | None = MessageQuote.from_dict(
+            raw_quote) if raw_quote else None
+
+        group_id: str | None = data_message.get("groupInfo", {}).get("groupId")
+        if not destination:
+            destination = group_id
+
+        return cls(
+            source=source,
+            type=MessageType.EDIT,
+            timestamp=timestamp,
+            group_id=group_id,
+            destination=destination,
+            text=text,
+            attachments=attachments,
+            quote=quote,
+            is_synced=is_synced,
+            target_sent_timestamp=target_timestamp
+        )
+
+
+@dataclass
+class DeleteMessage(ChatMessage):
+    # destination: str | None = None
+    target_sent_timestamp: int = 0
+
+    @property
+    def chat_id(self) -> str:
+        """Returns the ID of the chat context (group ID or sender)."""
+        return self.destination if self.destination else self.source
+
+
+@dataclass
+class GroupUpdateMessage(SignalMessage):
+    group_name: str | None = None
+    revision: int = 0
 
 
 @dataclass(kw_only=True)
@@ -385,3 +478,5 @@ class Event(Enum):
     PRE_SHUTDOWN = "pre_shutdown"
     TIMER = "timer"
     CHAT_MESSAGE_RECEIVED = "message_received"
+    CHAT_MESSAGE_EDITED = "message_edited"
+    CHAT_MESSAGE_DELETED = "message_deleted"

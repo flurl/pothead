@@ -16,12 +16,12 @@ import json
 import logging
 import os
 import shutil
-from typing import Any
+from typing import Any, cast
 
 from config import settings
 
 from collections import deque
-from datatypes import Attachment, ChatMessage, Permissions
+from datatypes import Attachment, ChatMessage, DeleteMessage, EditMessage, MessageType, Permissions, SignalMessage
 from state import CHAT_HISTORY
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -96,15 +96,42 @@ def check_permission(chat_id: str, sender: str, command: str) -> bool:
     return False
 
 
-def update_chat_history(msg: ChatMessage) -> None:
+def update_chat_history(msg: SignalMessage) -> None:
+    type: MessageType = msg.type
+    if type == MessageType.CHAT:
+        msg = cast(ChatMessage, msg)
+    elif type == MessageType.EDIT:
+        msg = cast(EditMessage, msg)
+    elif type == MessageType.DELETE:
+        msg = cast(DeleteMessage, msg)
+    else:
+        return
+
     chat_id: str = msg.chat_id
-    if chat_id not in CHAT_HISTORY:
-        CHAT_HISTORY[chat_id] = deque[ChatMessage](
-            maxlen=settings.history_max_length)
-    CHAT_HISTORY[chat_id].append(msg)
+
+    if type == MessageType.CHAT:
+        if chat_id not in CHAT_HISTORY:
+            CHAT_HISTORY[chat_id] = deque[ChatMessage](
+                maxlen=settings.history_max_length)
+        CHAT_HISTORY[chat_id].append(msg)
+    elif type == MessageType.EDIT:
+        if chat_id not in CHAT_HISTORY:
+            return
+        for idx, m in enumerate(CHAT_HISTORY[chat_id]):
+            if m.id == f"{msg.source}${cast(EditMessage, msg).target_sent_timestamp}":
+                CHAT_HISTORY[chat_id][idx].text = msg.text
+                break
+    elif type == MessageType.DELETE:
+        if chat_id not in CHAT_HISTORY:
+            return
+        for idx, m in enumerate(CHAT_HISTORY[chat_id]):
+            if m.id == f"{msg.source}${cast(DeleteMessage, msg).target_sent_timestamp}":
+                del CHAT_HISTORY[chat_id][idx]
+                break
+
     # logger.debug(f"Chat history for {chat_id}: {CHAT_HISTORY[chat_id]}")
-    # for line in CHAT_HISTORY[chat_id]:
-    #    logger.debug(line)
+    for line in CHAT_HISTORY[chat_id]:
+        logger.debug(line.text)
 
 
 def get_chat_id(data: dict[str, Any]) -> str | None:
