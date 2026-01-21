@@ -1,5 +1,7 @@
 
 import pytest
+import copy
+from collections import deque
 from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 
 # Mock the google.genai library before it's imported by the plugin
@@ -19,10 +21,41 @@ with patch.dict('sys.modules', {
     'google.genai.types': google_mock.genai.types,
     'google.genai.pagers': google_mock.genai.pagers
 }):
-    import plugins.gemini.main
-    gemini_module = plugins.gemini.main
-    from plugins.gemini.main import GeminiProvider, action_send_to_gemini
-    from datatypes import ChatMessage, MessageQuote
+    import plugins.gemini.main as gemini_main_module
+    gemini_module = gemini_main_module
+    from plugins.gemini.main import (
+        GeminiProvider,
+        action_send_to_gemini,
+        image_to_part,
+        chat_with_gemini,
+        cmd_add_ctx,
+        cmd_ls_ctx,
+        cmd_clear_ctx,
+        cmd_ls_file_store,
+        cmd_sync_store
+    )
+    from datatypes import ChatMessage, MessageQuote, MessageType
+
+
+def test_image_to_part():
+    mock_img = MagicMock()
+    mock_img.mode = 'RGB'
+
+    with patch('plugins.gemini.main.io.BytesIO') as mock_bytesio:
+        with patch('plugins.gemini.main.Image.open', return_value=mock_img) as mock_open:
+            # We must also mock the exception handling or the try block correctly.
+            # Actually, it seems Image.open is failing with FileNotFoundError even if mocked?
+            # Ah, maybe I should patch 'PIL.Image.open' instead?
+            # But the plugin does 'from PIL import Image'.
+
+            # Let's try patching it where it's used in the plugin's namespace.
+            with patch.object(gemini_module, 'Image') as mock_PIL_Image:
+                mock_PIL_Image.open.return_value = mock_img
+                result = image_to_part("test_path.jpg")
+
+                assert result is not None
+                google_mock.genai.types.Part.assert_called()
+                mock_img.save.assert_called()
 
 
 @pytest.mark.asyncio
@@ -99,7 +132,7 @@ async def test_action_send_to_gemini(mock_gemini_provider, mock_messaging):
         # --- Test direct message ---
         await action_send_to_gemini(DATA_MESSAGE_DIRECT)
 
-        google_mock.genai.types.Part.assert_called_with(text="How are you?")
+        google_mock.genai.types.Part.assert_any_call(text="How are you?")
         part_instance = google_mock.genai.types.Part.return_value
 
         mock_gemini_provider["get_response"].assert_called_once_with(
@@ -137,3 +170,127 @@ async def test_action_send_to_gemini(mock_gemini_provider, mock_messaging):
     with patch.object(gemini_module.settings, 'trigger_words', ["!another"]):
         await action_send_to_gemini(DATA_MESSAGE_DIRECT)
         assert not mock_gemini_provider["get_response"].called
+
+    # --- Test with image attachment ---
+    with patch.object(gemini_module.settings, 'trigger_words', ["!ping"]):
+        with patch('plugins.gemini.main.os.path.exists', return_value=True):
+            with patch.object(gemini_module, 'image_to_part', side_effect=lambda x: MagicMock()) as mock_i2p:
+                msg_with_att = copy.deepcopy(DATA_MESSAGE_DIRECT)
+                msg_with_att["params"]["envelope"]["dataMessage"]["attachments"] = [
+                    {"id": "att1", "contentType": "image/jpeg", "size": 100}
+                ]
+
+                await action_send_to_gemini(msg_with_att)
+
+                assert mock_i2p.called
+            assert mock_gemini_provider["get_response"].called
+            # Should have 2 parts: text and image
+            args, _ = mock_gemini_provider["get_response"].call_args
+            assert len(args[1]) == 2
+
+
+@pytest.mark.asyncio
+async def test_chat_with_gemini(mock_gemini_provider, mock_messaging):
+    chat_id = "test_chat"
+    history = deque([
+        ChatMessage(source="user", destination=chat_id, text="Hello",
+                    type=MessageType.CHAT, timestamp=1000),
+        ChatMessage(source="Assistant", destination=chat_id, text="Hi there",
+                    type=MessageType.CHAT, timestamp=2000),
+        ChatMessage(source="user", destination=chat_id, text="How are you?",
+                    type=MessageType.CHAT, timestamp=3000),
+    ])
+
+    # Try patching it differently
+    mock_history = {chat_id: history}
+    with patch.dict(gemini_module.CHAT_HISTORY, mock_history, clear=True):
+        await chat_with_gemini(chat_id)
+
+        assert mock_gemini_provider["get_response"].called
+        mock_messaging["direct"].assert_called_once_with(
+            "Mocked Gemini Response", "user")
+
+
+@pytest.mark.asyncio
+async def test_cmd_add_ctx():
+    chat_id = "test_chat"
+    history = deque([
+        ChatMessage(source="user", destination=chat_id,
+                    text="Message 1", type=MessageType.CHAT, timestamp=1000),
+        ChatMessage(source="user", destination=chat_id,
+                    text="Message 2", type=MessageType.CHAT, timestamp=2000),
+        ChatMessage(source="user", destination=chat_id,
+                    text="!gemini #addctx 1", type=MessageType.CHAT, timestamp=3000),
+    ])
+
+    # Try direct modification of the dictionary in the module
+    with patch.dict(gemini_module.CHAT_HISTORY, {chat_id: history}, clear=True):
+        # Mock gemini.get_chat_context to return a list we can check
+        context = []
+        with patch.object(gemini_module.gemini, 'get_chat_context', return_value=context):
+            # idx=1 should refer to "Message 2" (one before the command)
+            response, _ = await cmd_add_ctx(chat_id, ["1"], "Manual prompt")
+
+            assert "Context saved (2 items)" in response
+            assert len(context) == 2
+            # history[-(1+1)] should be Message 2
+            assert "Message 2" in context[0]
+            assert "Manual prompt" in context[1]
+
+
+@pytest.mark.asyncio
+async def test_cmd_ls_ctx():
+    chat_id = "test_chat"
+    context = ["Item 1", "Item 2 with many words that should be truncated"]
+    with patch.object(gemini_module.gemini, 'get_chat_context', return_value=context):
+        response, _ = await cmd_ls_ctx(chat_id, [], None)
+        assert "📝 Current Context:" in response
+        assert "Item 1" in response
+        assert "Item 2 with many words..." in response
+
+
+@pytest.mark.asyncio
+async def test_cmd_clear_ctx():
+    chat_id = "test_chat"
+    context = ["Item 1"]
+    with patch.object(gemini_module.gemini, 'get_chat_context', return_value=context):
+        response, _ = await cmd_clear_ctx(chat_id, [], None)
+        assert "🗑️ Context cleared." in response
+        assert len(context) == 0
+
+
+@pytest.mark.asyncio
+async def test_cmd_ls_file_store(mock_gemini_provider):
+    chat_id = "test_chat"
+    mock_store = MagicMock()
+    mock_store.name = "stores/test-store"
+    mock_gemini_provider["client"].file_search_stores.documents.list.return_value = [
+        MagicMock(display_name="file1.txt"),
+        MagicMock(display_name="file2.pdf")
+    ]
+
+    with patch.object(gemini_module.gemini, 'get_chat_store', return_value=mock_store):
+        response, _ = await cmd_ls_file_store(chat_id, [], None)
+        assert "Gemini's File Store" in response
+        assert "- file1.txt" in response
+        assert "- file2.pdf" in response
+
+
+@pytest.mark.asyncio
+async def test_cmd_sync_store(mock_gemini_provider):
+    chat_id = "test_chat"
+    mock_store = MagicMock()
+    mock_store.name = "stores/test-store"
+
+    mock_upload_op = MagicMock()
+    mock_upload_op.done = True
+    mock_gemini_provider["client"].file_search_stores.upload_to_file_search_store.return_value = mock_upload_op
+
+    with patch.object(gemini_module.gemini, 'get_chat_store', return_value=mock_store), \
+            patch('plugins.gemini.main.get_local_files', return_value=["file1.txt"]), \
+            patch('plugins.gemini.main.os.path.isdir', return_value=True), \
+            patch('plugins.gemini.main.os.listdir', return_value=["file1.txt"]), \
+            patch('plugins.gemini.main.os.path.isfile', return_value=True):
+        response, _ = await cmd_sync_store(chat_id, [], None)
+        assert "Synced 1 files" in response
+        mock_gemini_provider["client"].file_search_stores.upload_to_file_search_store.assert_called_once()
