@@ -130,8 +130,8 @@ def update_chat_history(msg: SignalMessage) -> None:
                 break
 
     # logger.debug(f"Chat history for {chat_id}: {CHAT_HISTORY[chat_id]}")
-    for line in CHAT_HISTORY[chat_id]:
-        logger.debug(line.text)
+    # for line in CHAT_HISTORY[chat_id]:
+    #    logger.debug(line.text)
 
 
 def get_chat_id(data: dict[str, Any]) -> str | None:
