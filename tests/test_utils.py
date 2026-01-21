@@ -2,9 +2,10 @@
 import os
 import json
 import shutil
+import logging
 from collections import deque
-from unittest.mock import patch, mock_open
-from datatypes import Attachment, ChatMessage, MessageType, Permissions
+from unittest.mock import patch, mock_open, MagicMock
+from datatypes import Attachment, ChatMessage, MessageType, Permissions, EditMessage, DeleteMessage
 from utils import (
     get_safe_chat_dir,
     get_local_file_store_path,
@@ -16,6 +17,7 @@ from utils import (
     update_chat_history,
     get_chat_id,
     save_attachment,
+    CHAT_HISTORY,
 )
 
 
@@ -42,9 +44,17 @@ def test_get_local_files():
         f.write("test1")
     with open(os.path.join(chat_dir, "test2.txt"), "w") as f:
         f.write("test2")
+    # Add a directory to test isfile check
+    os.makedirs(os.path.join(chat_dir, "subdir"), exist_ok=True)
+
     expected_files = ["test1.txt", "test2.txt"]
     assert sorted(get_local_files(chat_id)) == sorted(expected_files)
     shutil.rmtree(chat_dir)
+
+def test_get_local_files_not_dir():
+    chat_id = "non_existent_chat"
+    with patch("utils.get_local_file_store_path", return_value="/non/existent/path"):
+        assert get_local_files(chat_id) == []
 
 
 def test_get_permissions_file():
@@ -70,6 +80,20 @@ def test_load_permissions():
     os.remove(perms_file)
     shutil.rmtree(os.path.dirname(perms_file))
 
+def test_load_permissions_not_exists():
+    chat_id = "no_perms_chat"
+    loaded_perms = load_permissions(chat_id)
+    assert loaded_perms == {"users": {}, "groups": {"ALL": {"members": [], "permissions": []}}}
+
+def test_load_permissions_error():
+    chat_id = "error_chat"
+    with patch("utils.get_permissions_file", return_value="/non/existent/perms.json"):
+        with patch("os.path.exists", return_value=True):
+            with patch("builtins.open", side_effect=Exception("Read error")):
+                with patch("utils.logger") as mock_logger:
+                    loaded_perms = load_permissions(chat_id)
+                    assert "groups" in loaded_perms
+                    mock_logger.error.assert_called()
 
 def test_save_permissions():
     chat_id = "test_chat"
@@ -82,6 +106,13 @@ def test_save_permissions():
     assert saved_perms == perms_data
     os.remove(perms_file)
     shutil.rmtree(os.path.dirname(perms_file))
+
+def test_save_permissions_error():
+    chat_id = "error_save_chat"
+    with patch("builtins.open", side_effect=Exception("Write error")):
+        with patch("utils.logger") as mock_logger:
+            save_permissions(chat_id, {})
+            mock_logger.error.assert_called()
 
 
 def test_check_permission():
@@ -118,13 +149,43 @@ def test_check_permission():
 def test_update_chat_history():
     chat_id = "test_chat"
     msg = ChatMessage(source=chat_id, text="Hello", type=MessageType.CHAT)
-    with patch("utils.CHAT_HISTORY", {}):
+    with patch("utils.CHAT_HISTORY", {}) as mock_history:
         with patch("utils.settings.history_max_length", 2):
             update_chat_history(msg)
-            from utils import CHAT_HISTORY
-            assert msg.chat_id in CHAT_HISTORY
-            assert len(CHAT_HISTORY[msg.chat_id]) == 1
-            assert CHAT_HISTORY[msg.chat_id][0] == msg
+            assert msg.chat_id in mock_history
+            assert len(mock_history[msg.chat_id]) == 1
+            assert mock_history[msg.chat_id][0] == msg
+
+            # Test edit
+            edit_msg = EditMessage(source=chat_id, text="Hello Edited", type=MessageType.EDIT, target_sent_timestamp=msg.timestamp)
+            update_chat_history(edit_msg)
+            assert mock_history[msg.chat_id][0].text == "Hello Edited"
+
+            # Test delete
+            delete_msg = DeleteMessage(source=chat_id, type=MessageType.DELETE, target_sent_timestamp=msg.timestamp)
+            update_chat_history(delete_msg)
+            assert len(mock_history[msg.chat_id]) == 0
+
+def test_update_chat_history_other_type():
+    msg = MagicMock()
+    msg.type = MessageType.REACTION
+    with patch("utils.CHAT_HISTORY", {}) as mock_history:
+        update_chat_history(msg)
+        assert len(mock_history) == 0
+
+def test_update_chat_history_edit_not_in_history():
+    chat_id = "test_chat"
+    edit_msg = EditMessage(source=chat_id, text="Hello Edited", type=MessageType.EDIT, target_sent_timestamp=123)
+    with patch("utils.CHAT_HISTORY", {}) as mock_history:
+        update_chat_history(edit_msg)
+        assert len(mock_history) == 0
+
+def test_update_chat_history_delete_not_in_history():
+    chat_id = "test_chat"
+    delete_msg = DeleteMessage(source=chat_id, type=MessageType.DELETE, target_sent_timestamp=123)
+    with patch("utils.CHAT_HISTORY", {}) as mock_history:
+        update_chat_history(delete_msg)
+        assert len(mock_history) == 0
 
 
 def test_get_chat_id():
@@ -141,6 +202,10 @@ def test_get_chat_id():
     data = {"params": {"envelope": {"syncMessage": {
         "sentMessage": {"groupInfo": {"groupId": "group456"}}}}}}
     assert get_chat_id(data) == "group456"
+
+    # Test with no group info but sync message
+    data = {"params": {"envelope": {"source": "user789", "syncMessage": {"sentMessage": {"message": "hello"}}}}}
+    assert get_chat_id(data) == "user789"
 
 
 def test_save_attachment():
@@ -177,4 +242,28 @@ def test_save_attachment():
 
         shutil.rmtree(signal_attachments_path)
 
+    shutil.rmtree(dest_dir)
+
+def test_save_attachment_not_found():
+    att = Attachment(id="non_existent", filename="test.txt", content_type="text/plain", size=1)
+    with patch("utils.settings.signal_attachments_path", "/tmp/signal_attachments"):
+        assert save_attachment(att, "/tmp") is None
+
+def test_save_attachment_error():
+    att = Attachment(id="att1", filename="test.txt", content_type="text/plain", size=1)
+    dest_dir = "/tmp/attachments"
+    os.makedirs(dest_dir, exist_ok=True)
+    with patch("utils.settings.signal_attachments_path", "/tmp/signal_attachments"):
+        signal_attachments_path = "/tmp/signal_attachments"
+        os.makedirs(signal_attachments_path, exist_ok=True)
+        src_file = os.path.join(signal_attachments_path, "att1")
+        with open(src_file, "w") as f:
+            f.write("test attachment")
+
+        with patch("shutil.copy2", side_effect=Exception("Copy error")):
+            with patch("utils.logger") as mock_logger:
+                assert save_attachment(att, dest_dir) is None
+                mock_logger.error.assert_called()
+
+        shutil.rmtree(signal_attachments_path)
     shutil.rmtree(dest_dir)

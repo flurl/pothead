@@ -3,6 +3,7 @@ import asyncio
 import json
 import time
 import pytest
+import logging
 from unittest.mock import AsyncMock, patch, MagicMock
 from pothead import (
     handle_command,
@@ -13,8 +14,9 @@ from pothead import (
     handle_incomming_message,
     process_incoming_line,
     main,
+    command_filter
 )
-from datatypes import ChatMessage, Event, Command, Action
+from datatypes import ChatMessage, Event, Command, Action, MessageType, EditMessage, DeleteMessage, GroupUpdateMessage
 from plugin_manager import load_plugins, PLUGIN_COMMANDS
 
 
@@ -81,6 +83,25 @@ async def test_handle_command(mock_send_signal_message):
     assert sent_message.destination == "group123"
     assert sent_message.group_id == "group123"
 
+@pytest.mark.asyncio
+async def test_handle_command_invalid_type():
+    data = {"params": {"envelope": {"typingMessage": {}}}}
+    assert await handle_command(data) is False
+
+@pytest.mark.asyncio
+async def test_handle_command_empty_text():
+    data = {"params": {"envelope": {"source": "u", "dataMessage": {"message": "", "timestamp": 123}}}}
+    assert await handle_command(data) is False
+
+@pytest.mark.asyncio
+async def test_handle_command_with_params():
+    mock_handler = AsyncMock(return_value=("Resp", []))
+    COMMANDS.append(Command(name="test", handler=mock_handler, help_text="h", origin="sys"))
+    data = {"params": {"envelope": {"source": "test", "dataMessage": {"message": "!pot#test,p1,p2 prompt", "timestamp": time.time()*1000}}}}
+    with patch("pothead.send_signal_message", new_callable=AsyncMock):
+        assert await handle_command(data) is True
+        mock_handler.assert_awaited_once_with("test", ["p1", "p2"], "prompt")
+    COMMANDS.pop()
 
 @pytest.mark.asyncio
 async def test_fire_event():
@@ -89,6 +110,13 @@ async def test_fire_event():
         await fire_event(Event.POST_STARTUP, "arg1", kwarg1="val1")
         mock_handler.assert_awaited_once_with("arg1", kwarg1="val1")
 
+@pytest.mark.asyncio
+async def test_fire_event_error():
+    mock_handler = AsyncMock(side_effect=Exception("Handler error"))
+    with patch("pothead.EVENT_HANDLERS", {Event.POST_STARTUP: [mock_handler]}):
+        with patch("pothead.logger") as mock_logger:
+            await fire_event(Event.POST_STARTUP)
+            mock_logger.exception.assert_called()
 
 @pytest.mark.asyncio
 async def test_timer_loop():
@@ -114,6 +142,19 @@ async def test_execute_command():
             mock_handler.assert_awaited_once_with(
                 "chat1", ["param1"], "prompt")
 
+@pytest.mark.asyncio
+async def test_execute_command_no_permission():
+    with patch("pothead.check_permission", return_value=False):
+        response, _ = await execute_command("chat1", "user1", "testcmd", [], None)
+        assert "⛔ Permission denied" in response
+
+@pytest.mark.asyncio
+async def test_execute_command_unknown():
+    with patch("pothead.check_permission", return_value=True):
+        with patch("pothead.COMMANDS", []):
+            response, _ = await execute_command("chat1", "user1", "unknown", [], None)
+            assert "❓ Unknown command" in response
+
 
 @pytest.mark.asyncio
 async def test_handle_incomming_message():
@@ -129,6 +170,37 @@ async def test_handle_incomming_message():
             assert isinstance(call_args[0][1], ChatMessage)
             assert call_args[0][1].text == "Hello"
 
+@pytest.mark.asyncio
+async def test_handle_incomming_message_edit():
+    with patch("pothead.update_chat_history") as mock_update:
+        with patch("pothead.fire_event", new_callable=AsyncMock) as mock_fire:
+            data = {"params": {"envelope": {"source": "user1", "editMessage": {"targetSentTimestamp": 123, "dataMessage": {"timestamp": time.time() * 1000, "message": "Edited"}}}}}
+            await handle_incomming_message(data)
+            mock_update.assert_called_once()
+            mock_fire.assert_awaited_once()
+            assert mock_fire.call_args[0][0] == Event.CHAT_MESSAGE_EDITED
+            assert isinstance(mock_fire.call_args[0][1], EditMessage)
+
+@pytest.mark.asyncio
+async def test_handle_incomming_message_delete():
+    with patch("pothead.update_chat_history") as mock_update:
+        with patch("pothead.fire_event", new_callable=AsyncMock) as mock_fire:
+            data = {"params": {"envelope": {"source": "user1", "dataMessage": {"timestamp": time.time() * 1000, "remoteDelete": {"timestamp": 123}}}}}
+            await handle_incomming_message(data)
+            mock_update.assert_called_once()
+            mock_fire.assert_awaited_once()
+            assert mock_fire.call_args[0][0] == Event.CHAT_MESSAGE_DELETED
+            assert isinstance(mock_fire.call_args[0][1], DeleteMessage)
+
+@pytest.mark.asyncio
+async def test_handle_incomming_message_group_update():
+    with patch("pothead.fire_event", new_callable=AsyncMock) as mock_fire:
+        data = {"params": {"envelope": {"source": "user1", "dataMessage": {"timestamp": time.time() * 1000, "groupInfo": {"groupId": "g", "type": "UPDATE"}}}}}
+        await handle_incomming_message(data)
+        mock_fire.assert_awaited_once()
+        assert mock_fire.call_args[0][0] == Event.GROUP_UPDATE
+        assert isinstance(mock_fire.call_args[0][1], GroupUpdateMessage)
+
 
 @pytest.mark.asyncio
 async def test_handle_incomming_message_old():
@@ -142,6 +214,13 @@ async def test_handle_incomming_message_old():
             mock_update.assert_not_called()
             mock_fire.assert_not_called()
 
+@pytest.mark.asyncio
+async def test_handle_incomming_message_unknown():
+    with patch("pothead.logger") as mock_logger:
+        data = {"params": {"envelope": {"source": "u"}}}
+        await handle_incomming_message(data)
+        mock_logger.debug.assert_called()
+
 
 @pytest.mark.asyncio
 async def test_process_incoming_line_pending_reply():
@@ -149,6 +228,10 @@ async def test_process_incoming_line_pending_reply():
     with patch("pothead.PENDING_REPLIES", {"123": mock_callback}):
         await process_incoming_line('{"id": "123"}')
         mock_callback.assert_awaited_once()
+
+@pytest.mark.asyncio
+async def test_process_incoming_line_invalid_json():
+    await process_incoming_line('invalid') # Should not raise exception
 
 
 @pytest.mark.asyncio
@@ -159,6 +242,7 @@ async def test_main(mock_create_subprocess_exec):
     mock_proc.stdout.readline.return_value = b""  # Simulate end of output
     mock_proc.stdin = MagicMock()
     mock_proc.stdin.drain = AsyncMock()
+    mock_proc.returncode = 0
     mock_create_subprocess_exec.return_value = mock_proc
 
     # Run main and cancel it after a short time
@@ -280,3 +364,14 @@ async def test_process_incoming_line_calls_correct_action():
         # Assert that only action1's handler was called
         mock_action_handler_1.assert_awaited_once()
         mock_action_handler_2.assert_not_awaited()
+
+def test_command_filter_invalid_path():
+    match = MagicMock()
+    match.path = "other"
+    assert command_filter(match) is False
+
+def test_command_filter_none_value():
+    match = MagicMock()
+    match.path = "message"
+    match.value = None
+    assert command_filter(match) is False
