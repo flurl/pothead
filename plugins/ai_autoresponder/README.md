@@ -22,4 +22,4 @@ The plugin uses the following settings (configurable via `config.toml` or enviro
 
 ## Dependencies
 
-- Requires a plugin that provides the `send_to_ai` service (e.g., the `gemini` plugin).
+- Requires a plugin that provides the `chat_with_ai` service (e.g., the `gemini` plugin).

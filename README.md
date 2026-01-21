@@ -15,6 +15,7 @@ Pothead is a bot that uses `signal-cli` to interact with the Signal messaging se
 - `google-genai>=0.0.1`
 - `pydantic-settings`
 - `jsonpath_ng`
+- `Pillow`
 - `signal-cli`
 
 
@@ -98,7 +99,7 @@ Pothead comes with several built-in plugins. Each plugin has its own documentati
 - [**Cron**](plugins/cron/README.md): Provides a scheduling service for other plugins.
 - [**Echo**](plugins/echo/README.md): A simple utility plugin that echoes messages back.
 - [**FileSender**](plugins/filesender/README.md): Schedules the sending of text file contents.
-- [**Gemini**](plugins/gemini/README.md): Integrates with Google's Gemini AI for chat and RAG.
+- [**Gemini**](plugins/gemini/README.md): Integrates with Google's Gemini AI for chat, image analysis, and RAG.
 - [**Welcome**](plugins/welcome/README.md): Sends welcome messages to new group members.
 
 To enable a plugin, add its name to the `enabled_plugins` list in `pothead.toml`.
