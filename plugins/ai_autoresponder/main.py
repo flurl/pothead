@@ -25,7 +25,7 @@ from plugins.ai_autoresponder.config import PluginSettings  # nopep8
 plugin_settings: PluginSettings = cast(
     PluginSettings, get_plugin_settings(plugin_id))
 
-send_to_ai: Callable[..., Any] | None = None
+chat_with_ai: Callable[..., Any] | None = None
 auto_chat_ids: list[str] = plugin_settings.auto_chat_ids
 ignore_time: int | None = None
 
@@ -63,9 +63,9 @@ async def cmd_autodisable(chat_id: str, params: list[str], prompt: str | None) -
 
 @register_event_handler(plugin_id, Event.CHAT_MESSAGE_RECEIVED)
 async def on_chat_message_received(msg: ChatMessage) -> None:
-    global send_to_ai
+    global chat_with_ai
     global ignore_time
-    # check if the message's chat_id is in auto_chat_ids. If found forward the message to send_to_ai
+    # check if the message's chat_id is in auto_chat_ids. If found forward the message to chat_with_ai
     if msg.chat_id in auto_chat_ids:
         # Check if the message is a command (starts with !TRIGGER#)
         text: str = msg.text or ""
@@ -86,18 +86,18 @@ async def on_chat_message_received(msg: ChatMessage) -> None:
         else:
             return
 
-        if send_to_ai:
+        if chat_with_ai:
             logger.info(
                 f"Autoresponder: Forwarding message from {msg.chat_id} to AI.")
-            await send_to_ai(msg)
+            await chat_with_ai(msg)
         else:
             logger.warning(
-                "Autoresponder: send_to_ai service not available.")
+                "Autoresponder: chat_with_ai service not available.")
 
 
 def initialize() -> None:
     """Initializes the plugin"""
-    global send_to_ai
+    global chat_with_ai
     logger.info(f"Initializing {plugin_id} plugin")
     # read the file auto_chat_ids.txt and extend the auto_chat_ids list with the ids found in that file
     if os.path.exists(AUTO_CHAT_IDS_FILE):
@@ -107,9 +107,9 @@ def initialize() -> None:
                 if chat_id and chat_id not in auto_chat_ids:
                     auto_chat_ids.append(chat_id)
 
-    send_to_ai = get_service("send_to_ai")
-    if send_to_ai:
-        logger.info("Successfully initialized send_to_ai service")
+    chat_with_ai = get_service("chat_with_ai")
+    if chat_with_ai:
+        logger.info("Successfully initialized chat_with_ai service")
     else:
         logger.warning(
-            "Could not initialize send_to_ai service.")
+            "Could not initialize chat_with_ai service.")

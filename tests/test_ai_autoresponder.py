@@ -21,11 +21,12 @@ with patch("plugin_manager.get_plugin_settings") as mock_get_plugin_settings:
 
     import plugins.ai_autoresponder.main as ai_main
 
+
 @pytest.fixture(autouse=True)
 def reset_auto_chat_ids():
     ai_main.auto_chat_ids.clear()
     ai_main.ignore_time = None
-    ai_main.send_to_ai = None
+    ai_main.chat_with_ai = None
 
 
 @pytest.mark.asyncio
@@ -66,17 +67,18 @@ async def test_cmd_autodisable():
 @pytest.mark.asyncio
 async def test_on_chat_message_received_not_enabled():
     msg = ChatMessage(source="user1", text="Hello", type=MessageType.CHAT)
-    ai_main.send_to_ai = AsyncMock()
+    ai_main.chat_with_ai = AsyncMock()
     await ai_main.on_chat_message_received(msg)
-    ai_main.send_to_ai.assert_not_called()
+    ai_main.chat_with_ai.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_on_chat_message_received_enabled():
     chat_id = "user1"
     ai_main.auto_chat_ids.append(chat_id)
-    ai_main.send_to_ai = AsyncMock()
-    msg = ChatMessage(source=chat_id, text="Hello", type=MessageType.CHAT, destination=chat_id)
+    ai_main.chat_with_ai = AsyncMock()
+    msg = ChatMessage(source=chat_id, text="Hello",
+                      type=MessageType.CHAT, destination=chat_id)
 
     with patch("plugins.ai_autoresponder.main.settings") as mock_settings:
         mock_settings.trigger_words = ["!pot"]
@@ -84,15 +86,16 @@ async def test_on_chat_message_received_enabled():
         with patch("plugins.ai_autoresponder.main.plugin_settings") as mock_ps:
             mock_ps.wait_after_message_from_self = 10
             await ai_main.on_chat_message_received(msg)
-            ai_main.send_to_ai.assert_called_once_with(msg)
+            ai_main.chat_with_ai.assert_called_once_with(msg)
 
 
 @pytest.mark.asyncio
 async def test_on_chat_message_received_command_ignored():
     chat_id = "user1"
     ai_main.auto_chat_ids.append(chat_id)
-    ai_main.send_to_ai = AsyncMock()
-    msg = ChatMessage(source=chat_id, text="!pot#ping", type=MessageType.CHAT, destination=chat_id)
+    ai_main.chat_with_ai = AsyncMock()
+    msg = ChatMessage(source=chat_id, text="!pot#ping",
+                      type=MessageType.CHAT, destination=chat_id)
 
     with patch("plugins.ai_autoresponder.main.settings") as mock_settings:
         mock_settings.trigger_words = ["!pot"]
@@ -100,23 +103,24 @@ async def test_on_chat_message_received_command_ignored():
         with patch("plugins.ai_autoresponder.main.plugin_settings") as mock_ps:
             mock_ps.wait_after_message_from_self = 10
             await ai_main.on_chat_message_received(msg)
-            ai_main.send_to_ai.assert_not_called()
+            ai_main.chat_with_ai.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_on_chat_message_received_from_self():
     chat_id = "user1"
     ai_main.auto_chat_ids.append(chat_id)
-    ai_main.send_to_ai = AsyncMock()
+    ai_main.chat_with_ai = AsyncMock()
     bot_account = "bot_account"
-    msg = ChatMessage(source=bot_account, text="Hello", type=MessageType.CHAT, destination=chat_id)
+    msg = ChatMessage(source=bot_account, text="Hello",
+                      type=MessageType.CHAT, destination=chat_id)
 
     with patch("plugins.ai_autoresponder.main.settings") as mock_settings:
         mock_settings.trigger_words = ["!pot"]
         mock_settings.signal_account = bot_account
 
         await ai_main.on_chat_message_received(msg)
-        ai_main.send_to_ai.assert_not_called()
+        ai_main.chat_with_ai.assert_not_called()
         assert ai_main.ignore_time is not None
 
 
@@ -124,9 +128,10 @@ async def test_on_chat_message_received_from_self():
 async def test_on_chat_message_received_within_wait_time():
     chat_id = "user1"
     ai_main.auto_chat_ids.append(chat_id)
-    ai_main.send_to_ai = AsyncMock()
+    ai_main.chat_with_ai = AsyncMock()
     ai_main.ignore_time = int(time.time())
-    msg = ChatMessage(source=chat_id, text="Hello", type=MessageType.CHAT, destination=chat_id)
+    msg = ChatMessage(source=chat_id, text="Hello",
+                      type=MessageType.CHAT, destination=chat_id)
 
     with patch("plugins.ai_autoresponder.main.settings") as mock_settings:
         mock_settings.trigger_words = ["!pot"]
@@ -134,16 +139,17 @@ async def test_on_chat_message_received_within_wait_time():
         with patch("plugins.ai_autoresponder.main.plugin_settings") as mock_plugin_settings:
             mock_plugin_settings.wait_after_message_from_self = 10
             await ai_main.on_chat_message_received(msg)
-            ai_main.send_to_ai.assert_not_called()
+            ai_main.chat_with_ai.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_on_chat_message_received_after_wait_time():
     chat_id = "user1"
     ai_main.auto_chat_ids.append(chat_id)
-    ai_main.send_to_ai = AsyncMock()
+    ai_main.chat_with_ai = AsyncMock()
     ai_main.ignore_time = int(time.time()) - 20
-    msg = ChatMessage(source=chat_id, text="Hello", type=MessageType.CHAT, destination=chat_id)
+    msg = ChatMessage(source=chat_id, text="Hello",
+                      type=MessageType.CHAT, destination=chat_id)
 
     with patch("plugins.ai_autoresponder.main.settings") as mock_settings:
         mock_settings.trigger_words = ["!pot"]
@@ -151,7 +157,7 @@ async def test_on_chat_message_received_after_wait_time():
         with patch("plugins.ai_autoresponder.main.plugin_settings") as mock_plugin_settings:
             mock_plugin_settings.wait_after_message_from_self = 10
             await ai_main.on_chat_message_received(msg)
-            ai_main.send_to_ai.assert_called_once_with(msg)
+            ai_main.chat_with_ai.assert_called_once_with(msg)
             assert ai_main.ignore_time is None
 
 
@@ -162,5 +168,5 @@ def test_initialize():
                 ai_main.initialize()
                 assert "chat1" in ai_main.auto_chat_ids
                 assert "chat2" in ai_main.auto_chat_ids
-                assert ai_main.send_to_ai is not None
-                mock_get_service.assert_called_once_with("send_to_ai")
+                assert ai_main.chat_with_ai is not None
+                mock_get_service.assert_called_once_with("chat_with_ai")

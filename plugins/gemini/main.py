@@ -22,7 +22,6 @@ import asyncio
 import logging
 import os
 from collections import deque
-from dataclasses import dataclass
 from typing import Any, cast
 
 from config import settings
@@ -30,7 +29,7 @@ from google.genai.client import Client
 from google.genai import types
 from google.genai.pagers import Pager
 
-from datatypes import Attachment, ChatMessage, MessageType, Priority, SignalMessage
+from datatypes import ChatMessage, MessageType, Priority, SignalMessage
 from messaging import send_signal_direct_message, send_signal_group_message
 from plugin_manager import get_plugin_settings, register_action, register_command, register_service
 from state import CHAT_HISTORY
@@ -43,21 +42,6 @@ plugin_id: str = "gemini"
 from plugins.gemini.config import PluginSettings  # nopep8
 plugin_settings: PluginSettings = cast(
     PluginSettings, get_plugin_settings(plugin_id))
-
-
-@dataclass
-class MessageCotext:
-    """Standardized representation of an incoming message."""
-    source: str
-    chat_id: str
-    body: str
-    group_id: str | None = None
-    quote: str | None = None
-    attachments: list[Attachment] | None = None
-
-    @property
-    def has_content(self) -> bool:
-        return bool(self.body or (self.attachments and len(self.attachments) > 0))
 
 
 class GeminiProvider:
@@ -105,18 +89,14 @@ class GeminiProvider:
                 f"Failed to create store for {chat_id}: {e}", exc_info=True)
         return None
 
-    async def get_response(self, chat_id: str, prompt_text: str) -> str:
+    async def get_response(self, chat_id: str, parts: list[types.Part]) -> str:
         """Sends text to Gemini and returns the response."""
         try:
-            parts: list[types.Part] = []
-
             # Inject and consume context
             context_list: list[str] = self.get_chat_context(chat_id)
             if context_list:
                 parts.extend([types.Part(text=ctx) for ctx in context_list])
                 context_list.clear()  # Clear after usage as per original logic
-
-            parts.append(types.Part(text=prompt_text))
 
             # Configure Tools (RAG)
             tools: list[types.Tool] | None = None
@@ -173,7 +153,7 @@ async def process_gemini_message(msg: ChatMessage, prompt: str | None = None) ->
     else:
         # Note: We aren't sending attachments to Gemini in get_response yet.
         # If your GeminiProvider supports images, pass ctx.attachments there.
-        response_text: str = await gemini.get_response(msg.chat_id, full_prompt)
+        response_text: str = await gemini.get_response(msg.chat_id, [types.Part(text=full_prompt)])
 
     update_chat_history(ChatMessage(source="Assistant",
                         destination=msg.chat_id, text=response_text, type=MessageType.CHAT))
@@ -184,9 +164,58 @@ async def process_gemini_message(msg: ChatMessage, prompt: str | None = None) ->
         await send_signal_direct_message(response_text, msg.source)
 
 
+async def chat_with_gemini(chat_id: str) -> None:
+    if chat_id not in CHAT_HISTORY:
+        return
+
+    history: deque[ChatMessage] = CHAT_HISTORY[chat_id]
+    if not history:
+        return
+
+    # Check if the last message in a chat is older than settings.context_expiry_threshold
+    # We look for the last gap in conversation
+    threshold_ms: int = plugin_settings.context_expiry_threshold * 1000
+    start_index: int = 0
+
+    for i in range(len(history) - 1, 0, -1):
+        if (history[i].timestamp - history[i - 1].timestamp) > threshold_ms:
+            start_index = i
+            break
+
+    parts: list[types.Part] = []
+    for msg in list(history)[start_index:]:
+        role: str = "Model" if msg.source == "Assistant" else f"User ({msg.source})"
+        text: str = f"{role}: {msg.text or ''}"
+        if msg.quote and msg.quote.text:
+            text += f"\nQuote: {msg.quote.text}"
+        # logger.debug(
+        #    f"Adding to context: {text}")
+        parts.append(types.Part(text=text))
+
+    if not parts:
+        return
+
+    response_text: str = await gemini.get_response(chat_id, parts)
+
+    last_msg: ChatMessage = history[-1]
+    update_chat_history(ChatMessage(source="Assistant",
+                        destination=chat_id, text=response_text, type=MessageType.CHAT))
+
+    if last_msg.group_id:
+        await send_signal_group_message(response_text, last_msg.group_id)
+    else:
+        await send_signal_direct_message(response_text, last_msg.source)
+
+
 @register_service("send_to_ai")
 async def send_to_ai(msg: ChatMessage) -> bool:
     await process_gemini_message(msg)
+    return True
+
+
+@register_service("chat_with_ai")
+async def chat_with_ai(msg: ChatMessage) -> bool:
+    await chat_with_gemini(msg.chat_id)
     return True
 
 

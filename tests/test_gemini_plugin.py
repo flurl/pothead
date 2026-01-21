@@ -3,6 +3,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 
 # Mock the google.genai library before it's imported by the plugin
+import copy
 google_mock = MagicMock()
 google_mock.genai = MagicMock()
 google_mock.genai.client = MagicMock()
@@ -33,7 +34,8 @@ async def test_gemini_provider_get_response():
             return_value=MagicMock(text="Test response"))
 
         provider = GeminiProvider(api_key="test_key")
-        response = await provider.get_response("test_chat", "Test prompt")
+        mock_part = MagicMock()
+        response = await provider.get_response("test_chat", [mock_part])
 
         assert response == "Test response"
         mock_client_instance.aio.models.generate_content.assert_called_once()
@@ -96,8 +98,12 @@ async def test_action_send_to_gemini(mock_gemini_provider, mock_messaging):
     with patch.object(gemini_module.settings, 'trigger_words', ["!ping"]):
         # --- Test direct message ---
         await action_send_to_gemini(DATA_MESSAGE_DIRECT)
+
+        google_mock.genai.types.Part.assert_called_with(text="How are you?")
+        part_instance = google_mock.genai.types.Part.return_value
+
         mock_gemini_provider["get_response"].assert_called_once_with(
-            "+12345", "How are you?")
+            "+12345", [part_instance])
         mock_messaging["direct"].assert_called_once_with(
             "Mocked Gemini Response", "+12345")
         assert not mock_messaging["group"].called
@@ -106,8 +112,10 @@ async def test_action_send_to_gemini(mock_gemini_provider, mock_messaging):
 
         # --- Test group message ---
         await action_send_to_gemini(DATA_MESSAGE_GROUP)
+
+        google_mock.genai.types.Part.assert_called_with(text="How are you?")
         mock_gemini_provider["get_response"].assert_called_once_with(
-            "group123", "How are you?")
+            "group123", [part_instance])
         mock_messaging["group"].assert_called_once_with(
             "Mocked Gemini Response", "group123")
         assert not mock_messaging["direct"].called
@@ -115,13 +123,14 @@ async def test_action_send_to_gemini(mock_gemini_provider, mock_messaging):
         mock_messaging["group"].reset_mock()
 
         # --- Test with quote ---
-        msg_with_quote = DATA_MESSAGE_DIRECT.copy()
+        msg_with_quote = copy.deepcopy(DATA_MESSAGE_DIRECT)
         msg_with_quote["params"]["envelope"]["dataMessage"]["quote"] = {
             "text": "This is a quoted message."}
         await action_send_to_gemini(msg_with_quote)
         expected_prompt = "How are you?\n\n>> This is a quoted message."
+        google_mock.genai.types.Part.assert_called_with(text=expected_prompt)
         mock_gemini_provider["get_response"].assert_called_once_with(
-            "+12345", expected_prompt)
+            "+12345", [part_instance])
         mock_gemini_provider["get_response"].reset_mock()
 
     # --- Test no trigger ---

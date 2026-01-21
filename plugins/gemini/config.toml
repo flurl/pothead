@@ -1,3 +1,5 @@
-gemini_model_name = "gemini-3-flash-preview"
+gemini_model_name = "gemini-2.5-flash"
 
 system_instruction = "You are a helpful assistant."
+
+context_expiry_threshold = 300
