@@ -19,16 +19,18 @@ Configuration:
 """
 
 import asyncio
+import io
 import logging
 import os
 from collections import deque
 from typing import Any, cast
 
-from config import settings
 from google.genai.client import Client
 from google.genai import types
 from google.genai.pagers import Pager
+from PIL import Image
 
+from config import settings
 from datatypes import ChatMessage, MessageType, Priority, SignalMessage
 from messaging import send_signal_direct_message, send_signal_group_message
 from plugin_manager import get_plugin_settings, register_action, register_command, register_service
@@ -42,6 +44,24 @@ plugin_id: str = "gemini"
 from plugins.gemini.config import PluginSettings  # nopep8
 plugin_settings: PluginSettings = cast(
     PluginSettings, get_plugin_settings(plugin_id))
+
+
+def image_to_part(path: str) -> types.Part | None:
+    try:
+        pil_image: Image.Image = Image.open(path)
+
+        # Convert to RGB to ensure JPEG compatibility
+        if pil_image.mode in ("RGBA", "P"):
+            pil_image = pil_image.convert("RGB")
+
+        image_buffer = io.BytesIO()
+        pil_image.save(image_buffer, format="JPEG")
+        image_bytes: bytes = image_buffer.getvalue()
+
+        return types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=image_bytes))
+    except Exception as e:
+        logger.error(f"Failed to process image {path}: {e}")
+        return None
 
 
 class GeminiProvider:
@@ -148,12 +168,25 @@ async def process_gemini_message(msg: ChatMessage, prompt: str | None = None) ->
     logger.info(
         f"Processing Gemini request from {msg.source} in {msg.chat_id}")
 
-    if not full_prompt and not msg.attachments:
-        response_text = "🤖 Beep Boop. Please provide a prompt."
+    parts: list[types.Part] = []
+    if full_prompt:
+        parts.append(types.Part(text=full_prompt))
+
+    if msg.attachments:
+        for att in msg.attachments:
+            if att.content_type.startswith("image/"):
+                path: str = os.path.join(
+                    settings.signal_attachments_path, att.id)
+                path: str = os.path.expanduser(path)
+                if os.path.exists(path):
+                    part: types.Part | None = image_to_part(path)
+                    if part:
+                        parts.append(part)
+
+    if not parts:
+        response_text = "🤖 Beep Boop. Please provide a prompt or image."
     else:
-        # Note: We aren't sending attachments to Gemini in get_response yet.
-        # If your GeminiProvider supports images, pass ctx.attachments there.
-        response_text: str = await gemini.get_response(msg.chat_id, [types.Part(text=full_prompt)])
+        response_text: str = await gemini.get_response(msg.chat_id, parts)
 
     update_chat_history(ChatMessage(source="Assistant",
                         destination=msg.chat_id, text=response_text, type=MessageType.CHAT))
@@ -191,6 +224,17 @@ async def chat_with_gemini(chat_id: str) -> None:
         # logger.debug(
         #    f"Adding to context: {text}")
         parts.append(types.Part(text=text))
+
+        if msg.attachments:
+            for att in msg.attachments:
+                if att.content_type.startswith("image/"):
+                    path: str = os.path.join(
+                        settings.signal_attachments_path, att.id)
+                    path = os.path.expanduser(path)
+                    if os.path.exists(path):
+                        part: types.Part | None = image_to_part(path)
+                        if part:
+                            parts.append(part)
 
     if not parts:
         return
