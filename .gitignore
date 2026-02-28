@@ -64,6 +64,7 @@ venv.bak/
 
 # Custom
 signal-cli*
+libsignal_latest_release
 .timetracker
 document_store
 permissions
