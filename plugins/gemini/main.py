@@ -19,6 +19,7 @@ Configuration:
 """
 
 import asyncio
+import json
 import io
 import logging
 import os
@@ -44,6 +45,29 @@ plugin_id: str = "gemini"
 from plugins.gemini.config import PluginSettings  # nopep8
 plugin_settings: PluginSettings = cast(
     PluginSettings, get_plugin_settings(plugin_id))
+
+
+SYS_INSTRUCTIONS_FILE: str = os.path.join(
+    os.path.dirname(__file__), "sys_instructions.txt")
+custom_sys_instructions: dict[str, str] = {}
+
+
+def load_sys_instructions() -> None:
+    global custom_sys_instructions
+    if os.path.exists(SYS_INSTRUCTIONS_FILE):
+        try:
+            with open(SYS_INSTRUCTIONS_FILE, "r", encoding="utf-8") as f:
+                custom_sys_instructions = json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load sys instructions: {e}")
+
+
+def save_sys_instructions() -> None:
+    try:
+        with open(SYS_INSTRUCTIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(custom_sys_instructions, f, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to save sys instructions: {e}")
 
 
 def image_to_part(path: str) -> types.Part | None:
@@ -129,12 +153,15 @@ class GeminiProvider:
                     )
                 )]
 
+            sys_instr: str = custom_sys_instructions.get(
+                chat_id, plugin_settings.system_instruction)
+
             # Async Generation
             response: types.GenerateContentResponse = await self.client.aio.models.generate_content(  # type: ignore
                 model=plugin_settings.gemini_model_name,
                 contents=types.Content(parts=parts),
                 config=types.GenerateContentConfig(
-                    system_instruction=plugin_settings.system_instruction,
+                    system_instruction=sys_instr,
                     tools=tools,
                     safety_settings=self._safety_settings,
                 ),
@@ -455,3 +482,22 @@ async def cmd_sync_store(chat_id: str, params: list[str], prompt: str | None) ->
         return f"❌ Sync error: {e}", []
 
     return f"🔄 Synced {uploaded_count} files to Gemini Store.", []
+
+
+@register_command("gemini", "savesys", "Sets a custom system instruction for this chat. Empty to reset.")
+async def cmd_save_sys(chat_id: str, params: list[str], prompt: str | None) -> tuple[str, list[str]]:
+    """Saves a custom system instruction for the current chat."""
+    if not prompt:
+        if chat_id in custom_sys_instructions:
+            del custom_sys_instructions[chat_id]
+            save_sys_instructions()
+            return "🗑️ Custom system instruction removed. Using default.", []
+        return "ℹ️ No custom system instruction was set.", []
+
+    custom_sys_instructions[chat_id] = prompt
+    save_sys_instructions()
+    return "💾 Custom system instruction saved.", []
+
+
+def initialize() -> None:
+    load_sys_instructions()

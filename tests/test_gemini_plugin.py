@@ -2,7 +2,7 @@
 import pytest
 import copy
 from collections import deque
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock, mock_open
 
 # Mock the google.genai library before it's imported by the plugin
 import copy
@@ -32,7 +32,10 @@ with patch.dict('sys.modules', {
         cmd_ls_ctx,
         cmd_clear_ctx,
         cmd_ls_file_store,
-        cmd_sync_store
+        cmd_sync_store,
+        cmd_save_sys,
+        load_sys_instructions,
+        save_sys_instructions
     )
     from datatypes import ChatMessage, MessageQuote, MessageType
 
@@ -293,4 +296,71 @@ async def test_cmd_sync_store(mock_gemini_provider):
             patch('plugins.gemini.main.os.path.isfile', return_value=True):
         response, _ = await cmd_sync_store(chat_id, [], None)
         assert "Synced 1 files" in response
-        mock_gemini_provider["client"].file_search_stores.upload_to_file_search_store.assert_called_once()
+        mock_gemini_provider["client"].file_search_stores.upload_to_file_search_store.assert_called_once(
+        )
+
+
+@pytest.mark.asyncio
+async def test_cmd_save_sys():
+    chat_id = "test_chat"
+
+    # Ensure clean state
+    gemini_module.custom_sys_instructions.clear()
+
+    with patch.object(gemini_module, 'save_sys_instructions') as mock_save:
+        # 1. Set new instruction
+        response, _ = await cmd_save_sys(chat_id, [], "New instruction")
+        assert "saved" in response
+        assert gemini_module.custom_sys_instructions[chat_id] == "New instruction"
+        mock_save.assert_called_once()
+        mock_save.reset_mock()
+
+        # 2. Update instruction
+        response, _ = await cmd_save_sys(chat_id, [], "Updated instruction")
+        assert "saved" in response
+        assert gemini_module.custom_sys_instructions[chat_id] == "Updated instruction"
+        mock_save.assert_called_once()
+        mock_save.reset_mock()
+
+        # 3. Remove instruction
+        response, _ = await cmd_save_sys(chat_id, [], None)
+        assert "removed" in response
+        assert chat_id not in gemini_module.custom_sys_instructions
+        mock_save.assert_called_once()
+        mock_save.reset_mock()
+
+        # 4. Remove non-existent
+        response, _ = await cmd_save_sys(chat_id, [], None)
+        assert "No custom system instruction" in response
+        mock_save.assert_not_called()
+
+
+def test_load_sys_instructions():
+    # Test loading valid JSON
+    mock_data = '{"chat1": "instr1"}'
+    with patch('os.path.exists', return_value=True):
+        with patch('builtins.open', mock_open(read_data=mock_data)):
+            load_sys_instructions()
+            assert gemini_module.custom_sys_instructions == {"chat1": "instr1"}
+
+    # Test missing file
+    gemini_module.custom_sys_instructions = {}
+    with patch('os.path.exists', return_value=False):
+        load_sys_instructions()
+        assert gemini_module.custom_sys_instructions == {}
+
+    # Test invalid JSON
+    with patch('os.path.exists', return_value=True):
+        with patch('builtins.open', mock_open(read_data="invalid json")):
+            with patch.object(gemini_module, 'logger') as mock_logger:
+                load_sys_instructions()
+                mock_logger.error.assert_called()
+
+
+def test_save_sys_instructions():
+    gemini_module.custom_sys_instructions = {"chat1": "instr1"}
+    with patch('builtins.open', mock_open()) as mock_file:
+        save_sys_instructions()
+        mock_file.assert_called_once()
+        mock_file.assert_called_with(
+            gemini_module.SYS_INSTRUCTIONS_FILE, "w", encoding="utf-8")
