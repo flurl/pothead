@@ -47,7 +47,19 @@ cd signal-cli
 ./gradlew -Plibsignal_client_path="/home/flurl/bin/pothead/libsignal/java/client/build/libs/libsignal-client-0.86.11.jar" installDist
 ```
 
+Since https://github.com/AsamK/signal-cli/commit/32c8d4f80102623c29c81e29ae4e3cd921f48ddb `signal-cli` needs Java 25 to compile. But `signallib` does not (yet) compile with Java 25. Therefore you have to use two different Java Versions to successfully install `signal-cli` if you can't use the binary distribution of `libsignal`.
+
+I for example downloaded OpenJDK 25 from https://jdk.java.net/25/ . And then I make it default by setting the environment variable `JAVA_HOME`:
+
+```bash
+export JAVA_HOME=/path/to/openJDK/jdk-25.0.2/
+```
+
+But then you also have to set `JAVA_HOME` to run `pothead` .
+
 After that you should find the `signal-cli` script under `signal-cli/build/install/signal-cli/bin/signal-cli`.
+
+Two helper scripts `install_or_update_signal-cli.sh` and `check_release.sh` are provided that should do the hard work for you. Just set `JAVA_HOME` and run `install_or_update_signal-cli.sh`. This script expects your default JDK to be suitable for compiling `libsignal` and the via `JAVA_HOME` set JDK to be suitable for compiling `signal-cli`.
 
 Finally you must link `signal-cli` to your signal account - see https://github.com/AsamK/signal-cli/wiki/Linking-other-devices-(Provisioning). 
 
