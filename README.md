@@ -63,6 +63,10 @@ Two helper scripts `install_or_update_signal-cli.sh` and `check_release.sh` are 
 
 Finally you must link `signal-cli` to your signal account - see https://github.com/AsamK/signal-cli/wiki/Linking-other-devices-(Provisioning). 
 
+There's also a script `utils/install_systemd_service.sh` that can be used to install pothead as a systemd service that runs at boot. The script creates a unit file from the template `utils/pothead.service.template`. It make the service run under the current user and group.
+
+`install_systemd_service.sh` supports one optional parameter `--java-home` which you can use to specify a directory that will be used as the `JAVA_HOME` environment variable when pothead is run.
+
 
 ## Configuration
 
