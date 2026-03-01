@@ -1,0 +1,22 @@
+[Unit]
+Description=pothead service
+After=network-online.target
+Wants=network-online.target
+# If /home is on a separate partition, this avoids ordering issues:
+RequiresMountsFor=/home
+
+[Service]
+Type=simple
+User=<USER>
+Group=<GROUP>
+WorkingDirectory=<WORKING_DIR>
+ExecStart=<EXEC_START>
+
+Restart=always
+RestartSec=10
+# Nice for logging / seeing crashes:
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
