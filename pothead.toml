@@ -34,6 +34,7 @@ enabled_plugins = [
     "cron",
     "filesender",
     "ai_autoresponder",
+    "archiver",
 ] #, "echo"]
 
 ignore_messages_older_than = 30 # seconds

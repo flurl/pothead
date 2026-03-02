@@ -1,0 +1,5 @@
+id = "archiver"
+name = "Chat Archiver"
+description = "Archives chat history and attachments."
+version = "0.1.0"
+author = "Pothead-Dev"
