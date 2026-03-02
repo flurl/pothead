@@ -219,6 +219,8 @@ async def process_gemini_message(msg: ChatMessage, prompt: str | None = None) ->
                         destination=msg.chat_id, text=response_text, type=MessageType.CHAT))
     if msg.group_id:
         await send_signal_group_message(response_text, msg.group_id)
+    elif msg.source == settings.signal_account:
+        await send_signal_direct_message(response_text, msg.chat_id)
     else:
         # For direct messages, the recipient of the reply is the original source
         await send_signal_direct_message(response_text, msg.source)
@@ -274,6 +276,8 @@ async def chat_with_gemini(chat_id: str) -> None:
 
     if last_msg.group_id:
         await send_signal_group_message(response_text, last_msg.group_id)
+    elif last_msg.source == settings.signal_account:
+        await send_signal_direct_message(response_text, last_msg.chat_id)
     else:
         await send_signal_direct_message(response_text, last_msg.source)
 
