@@ -79,3 +79,6 @@ plugins/archiver/enabled_chats.json
 
 # ignore chat specific sys instructions in gemini plugin
 plugins/gemini/sys_instructions.txt
+
+# ignores for filesender plugin
+plugins/filesender/outbox

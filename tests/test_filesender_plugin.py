@@ -30,6 +30,7 @@ def mock_plugin_settings():
     with patch('plugins.filesender.main.plugin_settings') as mock_settings:
         mock_settings.filesender = sample_config
         mock_settings.max_length = 100
+        mock_settings.outbox_interval = 1
         yield mock_settings
 
 def test_initialize(mock_plugin_settings):
@@ -37,20 +38,26 @@ def test_initialize(mock_plugin_settings):
     Tests the initialize function to ensure it schedules cron jobs correctly.
     """
     from datetime import time
+    from plugins.filesender.main import scan_outbox
     mock_register_cron_job = MagicMock()
     with patch('plugins.filesender.main.get_service', return_value=mock_register_cron_job) as mock_get_service:
         initialize()
 
         mock_get_service.assert_called_once_with("register_cron_job")
-        assert mock_register_cron_job.call_count == 2
+        assert mock_register_cron_job.call_count == 3
 
-        # Check the first call
-        args1, kwargs1 = mock_register_cron_job.call_args_list[0]
+        # Check the first call: outbox scanner
+        args0, kwargs0 = mock_register_cron_job.call_args_list[0]
+        assert args0[0] is scan_outbox
+        assert 'interval' in kwargs0 and kwargs0['interval'] == 1
+
+        # Check the second call: first filesender config
+        args1, kwargs1 = mock_register_cron_job.call_args_list[1]
         assert 'interval' in kwargs1 and kwargs1['interval'] == 10
         assert 'time_of_day' in kwargs1 and kwargs1['time_of_day'] is None
 
-        # Check the second call
-        args2, kwargs2 = mock_register_cron_job.call_args_list[1]
+        # Check the third call: second filesender config
+        args2, kwargs2 = mock_register_cron_job.call_args_list[2]
         assert 'interval' in kwargs2 and kwargs2['interval'] is None
         assert 'time_of_day' in kwargs2 and kwargs2['time_of_day'] == time(8, 0)
 

@@ -44,3 +44,5 @@ class PluginSettings(PluginSettingsBase):
 
     max_length: int = 1000
     filesender: list[FileSender] = []
+    outbox_dir: str = "outbox"
+    outbox_interval: int = 1
