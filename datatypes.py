@@ -186,7 +186,7 @@ class ChatMessage(SignalMessage):
     @property
     def chat_id(self) -> str:
         """Returns the ID of the chat context (group ID or sender)."""
-        return self.destination if self.destination else self.source
+        return (self.destination or self.group_id or self.source)
 
     def __str__(self) -> str:
         sender_info: str = self.source
@@ -480,4 +480,5 @@ class Event(Enum):
     CHAT_MESSAGE_RECEIVED = "message_received"
     CHAT_MESSAGE_EDITED = "message_edited"
     CHAT_MESSAGE_DELETED = "message_deleted"
+    CHAT_MESSAGE_SENT = "message_sent"
     GROUP_UPDATE = "group_update"

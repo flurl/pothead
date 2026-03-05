@@ -66,6 +66,7 @@ async def cmd_disable_archive(chat_id: str, params: list[str], prompt: str | Non
 @register_event_handler(plugin_id, Event.CHAT_MESSAGE_RECEIVED)
 @register_event_handler(plugin_id, Event.CHAT_MESSAGE_EDITED)
 @register_event_handler(plugin_id, Event.CHAT_MESSAGE_DELETED)
+@register_event_handler(plugin_id, Event.CHAT_MESSAGE_SENT)
 async def on_chat_event(msg: SignalMessage) -> None:
     """
     Archives chat events (received, edited, deleted messages) if archiving is enabled for the chat.
@@ -80,6 +81,7 @@ async def on_chat_event(msg: SignalMessage) -> None:
     chat_id: str = chat_msg.chat_id
 
     if chat_id not in enabled_chats:
+        logger.info(f"Archiver skipping message for {chat_id}, not enabled.")
         return
 
     try:
