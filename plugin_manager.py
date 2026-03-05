@@ -38,10 +38,12 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from datatypes import Action, Priority, Command, Event
+from datatypes import Action, Priority, Command
 from config import settings
+# this allows plugins to import register_event_handler directly from plugin_manager instead of having to know about events.py.
+# TODO: is this sensible? Perhaps the plugins should import from events.py
+from events import EVENT_HANDLERS, EventHandler, register_event_handler  # pyright: ignore # noqa: F401
 
-EventHandler: TypeAlias = Callable[[], Awaitable[None]]
 ActionHandler: TypeAlias = Callable[[dict[str, Any]], Awaitable[bool]]
 CommandHandler: TypeAlias = Callable[[
     str, list[str], str | None], Awaitable[tuple[str, list[str]]]]
@@ -54,7 +56,6 @@ LOADED_PLUGINS: dict[str, dict[str, Any]] = {}
 
 PLUGIN_ACTIONS: list[Action] = []
 PLUGIN_COMMANDS: list[Command] = []
-EVENT_HANDLERS: dict[Event, list[Callable[[], Awaitable[None]]]] = {}
 PLUGIN_SERVICES: dict[str, Callable[..., Any]] = {}
 
 
@@ -169,34 +170,6 @@ def get_service(service_name: str) -> Callable[..., Any] | None:
     if not service:
         logger.warning(f"Service '{service_name}' not found.")
     return service
-
-
-def register_event_handler(
-    plugin_id: str,
-    event: Event,
-) -> Callable[..., Any]:
-    """
-    Decorator to register a function as an event handler.
-
-    Event handlers are called when specific system events occur (e.g., startup, shutdown, timer).
-    Multiple handlers can be registered for the same event.
-
-    Args:
-        plugin_id: The ID of the plugin registering the handler.
-        event: The `Event` enum member representing the event to listen for.
-
-    Returns:
-        The decorator function.
-    """
-    def decorator(func: EventHandler) -> EventHandler:
-        logger.info(
-            f"Registering event handler for '{event}' from '{plugin_id}'")
-        if event not in EVENT_HANDLERS:
-            EVENT_HANDLERS[event] = []
-        EVENT_HANDLERS[event].append(func)
-        return func
-
-    return decorator
 
 
 def register_action(

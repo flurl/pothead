@@ -17,8 +17,9 @@ from typing import Any
 
 from asyncio.subprocess import Process
 from config import settings
-from datatypes import ChatMessage, MessageType
+from datatypes import ChatMessage, Event, MessageType
 from plugin_manager import PENDING_REPLIES
+from events import fire_event
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -178,6 +179,7 @@ async def send_signal_message(
         assert proc.stdin is not None
         proc.stdin.write(json.dumps(rpc_request).encode('utf-8') + b"\n")
         await proc.stdin.drain()
+        await fire_event(Event.CHAT_MESSAGE_SENT, msg)
     except Exception as e:
         logger.error(f"Failed to send message: {e}")
 

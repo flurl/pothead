@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from pothead import (
     handle_command,
     COMMANDS,
-    fire_event,
     timer_loop,
     execute_command,
     handle_incomming_message,
@@ -102,21 +101,6 @@ async def test_handle_command_with_params():
         assert await handle_command(data) is True
         mock_handler.assert_awaited_once_with("test", ["p1", "p2"], "prompt")
     COMMANDS.pop()
-
-@pytest.mark.asyncio
-async def test_fire_event():
-    mock_handler = AsyncMock()
-    with patch("pothead.EVENT_HANDLERS", {Event.POST_STARTUP: [mock_handler]}):
-        await fire_event(Event.POST_STARTUP, "arg1", kwarg1="val1")
-        mock_handler.assert_awaited_once_with("arg1", kwarg1="val1")
-
-@pytest.mark.asyncio
-async def test_fire_event_error():
-    mock_handler = AsyncMock(side_effect=Exception("Handler error"))
-    with patch("pothead.EVENT_HANDLERS", {Event.POST_STARTUP: [mock_handler]}):
-        with patch("pothead.logger") as mock_logger:
-            await fire_event(Event.POST_STARTUP)
-            mock_logger.exception.assert_called()
 
 @pytest.mark.asyncio
 async def test_timer_loop():

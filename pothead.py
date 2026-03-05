@@ -38,12 +38,12 @@ from commands import COMMANDS
 from datatypes import Action, ChatMessage, MessageQuote, MessageType, Priority, Event, SignalMessage
 from messaging import set_signal_process, send_signal_message
 from utils import check_permission, update_chat_history
+from events import fire_event
 from plugin_manager import (
     PENDING_REPLIES,
     PLUGIN_ACTIONS,
     load_plugins,
     PLUGIN_COMMANDS,
-    EVENT_HANDLERS,
 )
 
 
@@ -55,17 +55,6 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger: logging.Logger = logging.getLogger(__name__)
-
-
-async def fire_event(event: Event, *args: Any, **kwargs: Any) -> None:
-    """Fires an event and runs all registered handlers."""
-    logger.info(f"Firing event: {event}")
-    if event in EVENT_HANDLERS:
-        for handler in EVENT_HANDLERS[event]:
-            try:
-                await handler(*args, **kwargs)
-            except Exception:
-                logger.exception(f"Error in event handler for {event}")
 
 
 async def timer_loop() -> None:
