@@ -148,7 +148,7 @@ def test_check_permission():
 
 def test_update_chat_history():
     chat_id = "test_chat"
-    msg = ChatMessage(source=chat_id, text="Hello", type=MessageType.CHAT)
+    msg = ChatMessage(source=chat_id, source_name=chat_id, text="Hello", type=MessageType.CHAT)
     with patch("utils.CHAT_HISTORY", {}) as mock_history:
         with patch("utils.settings.history_max_length", 2):
             update_chat_history(msg)
@@ -157,12 +157,12 @@ def test_update_chat_history():
             assert mock_history[msg.chat_id][0] == msg
 
             # Test edit
-            edit_msg = EditMessage(source=chat_id, text="Hello Edited", type=MessageType.EDIT, target_sent_timestamp=msg.timestamp)
+            edit_msg = EditMessage(source=chat_id, source_name=chat_id, text="Hello Edited", type=MessageType.EDIT, target_sent_timestamp=msg.timestamp)
             update_chat_history(edit_msg)
             assert mock_history[msg.chat_id][0].text == "Hello Edited"
 
             # Test delete
-            delete_msg = DeleteMessage(source=chat_id, type=MessageType.DELETE, target_sent_timestamp=msg.timestamp)
+            delete_msg = DeleteMessage(source=chat_id, source_name=chat_id, type=MessageType.DELETE, target_sent_timestamp=msg.timestamp)
             update_chat_history(delete_msg)
             assert len(mock_history[msg.chat_id]) == 0
 
@@ -175,14 +175,14 @@ def test_update_chat_history_other_type():
 
 def test_update_chat_history_edit_not_in_history():
     chat_id = "test_chat"
-    edit_msg = EditMessage(source=chat_id, text="Hello Edited", type=MessageType.EDIT, target_sent_timestamp=123)
+    edit_msg = EditMessage(source=chat_id, source_name=chat_id, text="Hello Edited", type=MessageType.EDIT, target_sent_timestamp=123)
     with patch("utils.CHAT_HISTORY", {}) as mock_history:
         update_chat_history(edit_msg)
         assert len(mock_history) == 0
 
 def test_update_chat_history_delete_not_in_history():
     chat_id = "test_chat"
-    delete_msg = DeleteMessage(source=chat_id, type=MessageType.DELETE, target_sent_timestamp=123)
+    delete_msg = DeleteMessage(source=chat_id, source_name=chat_id, type=MessageType.DELETE, target_sent_timestamp=123)
     with patch("utils.CHAT_HISTORY", {}) as mock_history:
         update_chat_history(delete_msg)
         assert len(mock_history) == 0

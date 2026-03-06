@@ -215,7 +215,9 @@ async def process_gemini_message(msg: ChatMessage, prompt: str | None = None) ->
     else:
         response_text: str = await gemini.get_response(msg.chat_id, parts)
 
-    update_chat_history(ChatMessage(source="Assistant",
+    # TODO: is this the correct place for updating the history?
+    # Shouldn't that better be handeled by the send_* functions
+    update_chat_history(ChatMessage(source="Assistant", source_name="Assistant",
                         destination=msg.chat_id, text=response_text, type=MessageType.CHAT))
     if msg.group_id:
         await send_signal_group_message(response_text, msg.group_id)
@@ -271,7 +273,9 @@ async def chat_with_gemini(chat_id: str) -> None:
     response_text: str = await gemini.get_response(chat_id, parts)
 
     last_msg: ChatMessage = history[-1]
-    update_chat_history(ChatMessage(source="Assistant",
+    # TODO: is this the correct place for updating the history?
+    # Shouldn't that better be handeled by the send_* functions
+    update_chat_history(ChatMessage(source="Assistant", source_name="Assistant",
                         destination=chat_id, text=response_text, type=MessageType.CHAT))
 
     if last_msg.group_id:

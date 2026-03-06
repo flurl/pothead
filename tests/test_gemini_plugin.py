@@ -196,11 +196,11 @@ async def test_action_send_to_gemini(mock_gemini_provider, mock_messaging):
 async def test_chat_with_gemini(mock_gemini_provider, mock_messaging):
     chat_id = "test_chat"
     history = deque([
-        ChatMessage(source="user", destination=chat_id, text="Hello",
+        ChatMessage(source="user", source_name="user", destination=chat_id, text="Hello",
                     type=MessageType.CHAT, timestamp=1000),
-        ChatMessage(source="Assistant", destination=chat_id, text="Hi there",
+        ChatMessage(source="Assistant", source_name="Assistant", destination=chat_id, text="Hi there",
                     type=MessageType.CHAT, timestamp=2000),
-        ChatMessage(source="user", destination=chat_id, text="How are you?",
+        ChatMessage(source="user", source_name="user", destination=chat_id, text="How are you?",
                     type=MessageType.CHAT, timestamp=3000),
     ])
 
@@ -218,11 +218,11 @@ async def test_chat_with_gemini(mock_gemini_provider, mock_messaging):
 async def test_cmd_add_ctx():
     chat_id = "test_chat"
     history = deque([
-        ChatMessage(source="user", destination=chat_id,
+        ChatMessage(source="user", source_name="user", destination=chat_id,
                     text="Message 1", type=MessageType.CHAT, timestamp=1000),
-        ChatMessage(source="user", destination=chat_id,
+        ChatMessage(source="user", source_name="user", destination=chat_id,
                     text="Message 2", type=MessageType.CHAT, timestamp=2000),
-        ChatMessage(source="user", destination=chat_id,
+        ChatMessage(source="user", source_name="user", destination=chat_id,
                     text="!gemini #addctx 1", type=MessageType.CHAT, timestamp=3000),
     ])
 

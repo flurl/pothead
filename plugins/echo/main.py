@@ -56,8 +56,9 @@ async def echo_handler(data: dict[str, Any]) -> bool:
     if not incoming.text.startswith("!"):
         logger.info(
             f"Echoing message from {incoming.source} in group {incoming.group_id}")
+        # TODO: make use of abstraction in messaging.py?
         outgoing: ChatMessage = ChatMessage(
-            source="Echo", destination=incoming.source, text=f"{plugin_settings.echo_prefix} {incoming.text}", group_id=incoming.group_id, type=MessageType.CHAT)
+            source="Echo", source_name="Echo", destination=incoming.source, text=f"{plugin_settings.echo_prefix} {incoming.text}", group_id=incoming.group_id, type=MessageType.CHAT)
         await send_signal_message(outgoing, wants_answer_callback=log_echo_response)
     return True
 

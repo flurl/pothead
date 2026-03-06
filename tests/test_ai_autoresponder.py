@@ -66,7 +66,7 @@ async def test_cmd_autodisable():
 
 @pytest.mark.asyncio
 async def test_on_chat_message_received_not_enabled():
-    msg = ChatMessage(source="user1", text="Hello", type=MessageType.CHAT)
+    msg = ChatMessage(source="user1", source_name="user1", text="Hello", type=MessageType.CHAT)
     ai_main.chat_with_ai = AsyncMock()
     await ai_main.on_chat_message_received(msg)
     ai_main.chat_with_ai.assert_not_called()
@@ -77,7 +77,7 @@ async def test_on_chat_message_received_enabled():
     chat_id = "user1"
     ai_main.auto_chat_ids.append(chat_id)
     ai_main.chat_with_ai = AsyncMock()
-    msg = ChatMessage(source=chat_id, text="Hello",
+    msg = ChatMessage(source=chat_id, source_name=chat_id, text="Hello",
                       type=MessageType.CHAT, destination=chat_id)
 
     with patch("plugins.ai_autoresponder.main.settings") as mock_settings:
@@ -94,7 +94,7 @@ async def test_on_chat_message_received_command_ignored():
     chat_id = "user1"
     ai_main.auto_chat_ids.append(chat_id)
     ai_main.chat_with_ai = AsyncMock()
-    msg = ChatMessage(source=chat_id, text="!pot#ping",
+    msg = ChatMessage(source=chat_id, source_name=chat_id, text="!pot#ping",
                       type=MessageType.CHAT, destination=chat_id)
 
     with patch("plugins.ai_autoresponder.main.settings") as mock_settings:
@@ -112,7 +112,7 @@ async def test_on_chat_message_received_from_self():
     ai_main.auto_chat_ids.append(chat_id)
     ai_main.chat_with_ai = AsyncMock()
     bot_account = "bot_account"
-    msg = ChatMessage(source=bot_account, text="Hello",
+    msg = ChatMessage(source=bot_account, source_name=bot_account, text="Hello",
                       type=MessageType.CHAT, destination=chat_id)
 
     with patch("plugins.ai_autoresponder.main.settings") as mock_settings:
@@ -130,7 +130,7 @@ async def test_on_chat_message_received_within_wait_time():
     ai_main.auto_chat_ids.append(chat_id)
     ai_main.chat_with_ai = AsyncMock()
     ai_main.ignore_time = int(time.time())
-    msg = ChatMessage(source=chat_id, text="Hello",
+    msg = ChatMessage(source=chat_id, source_name=chat_id, text="Hello",
                       type=MessageType.CHAT, destination=chat_id)
 
     with patch("plugins.ai_autoresponder.main.settings") as mock_settings:
@@ -148,7 +148,7 @@ async def test_on_chat_message_received_after_wait_time():
     ai_main.auto_chat_ids.append(chat_id)
     ai_main.chat_with_ai = AsyncMock()
     ai_main.ignore_time = int(time.time()) - 20
-    msg = ChatMessage(source=chat_id, text="Hello",
+    msg = ChatMessage(source=chat_id, source_name=chat_id, text="Hello",
                       type=MessageType.CHAT, destination=chat_id)
 
     with patch("plugins.ai_autoresponder.main.settings") as mock_settings:

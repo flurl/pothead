@@ -121,8 +121,9 @@ async def handle_command(data: dict[str, Any]) -> bool:
                 response_attachments: list[str] = []
                 response_text, response_attachments = await execute_command(chat_id, msg.source, command, command_params, prompt)
 
+                # TODO: make use of abstraction in messaging.py?
                 response: ChatMessage = ChatMessage(
-                    source="Assistant", destination=chat_id, text=response_text, group_id=msg.group_id, type=MessageType.CHAT)
+                    source="Assistant", source_name="Assistant", destination=chat_id, text=response_text, group_id=msg.group_id, type=MessageType.CHAT)
 
                 await send_signal_message(response, attachments=response_attachments)
                 update_chat_history(response)

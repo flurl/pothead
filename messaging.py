@@ -100,7 +100,7 @@ async def send_signal_direct_message(
         dict[str, Any]], Awaitable[None]] | None = None
 ) -> None:
     msg: ChatMessage = ChatMessage(
-        source="Assistant", destination=recipient, text=message, type=MessageType.CHAT)
+        source="Assistant", source_name="Assistant", destination=recipient, text=message, type=MessageType.CHAT)
     await send_signal_message(msg, attachments=attachments, wants_answer_callback=wants_answer_callback)
 
 
@@ -112,7 +112,7 @@ async def send_signal_group_message(
         dict[str, Any]], Awaitable[None]] | None = None
 ) -> None:
     msg: ChatMessage = ChatMessage(
-        source="Assistant", group_id=group_id, text=message, type=MessageType.CHAT)
+        source="Assistant", source_name="Assistant", group_id=group_id, text=message, type=MessageType.CHAT)
     await send_signal_message(msg, attachments=attachments, wants_answer_callback=wants_answer_callback)
 
 

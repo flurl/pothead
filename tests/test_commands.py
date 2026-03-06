@@ -29,7 +29,7 @@ async def test_cmd_save():
     chat_id = "test_chat"
     prompt = "Test prompt"
     history = deque(
-        [ChatMessage(source="user1", text="Message 1", type=MessageType.CHAT)])
+        [ChatMessage(source="user1", source_name="user1", text="Message 1", type=MessageType.CHAT)])
 
     with patch("commands.CHAT_HISTORY", {chat_id: history}):
         with patch("builtins.open", mock_open()) as mock_file:

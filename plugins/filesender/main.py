@@ -93,8 +93,10 @@ async def scan_outbox() -> None:
                 "+") else None
             group_id: None | str = None if chat_id.startswith("+") else chat_id
 
+            # TODO: make use of abstraction in messaging.py?
             outgoing_message = ChatMessage(
-                plugin_id,
+                source=plugin_id,
+                source_name=plugin_id,
                 destination=destination,
                 group_id=group_id,
                 text=content,
@@ -162,7 +164,8 @@ async def send_file_content(send_config: FileSender) -> None:
     logger.info(
         f"Sending file content of {file_path} to { 'group ' + send_config.group_id if send_config.group_id else 'user ' + str(send_config.destination)}")
     outgoing_message = ChatMessage(
-        "filesender",
+        source="filesender",
+        source_name="filesender",
         destination=send_config.destination,
         group_id=send_config.group_id,
         text=content,

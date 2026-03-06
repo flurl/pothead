@@ -321,7 +321,7 @@ def test_event_enum():
     assert Event.GROUP_UPDATE.value == "group_update"
 
 def test_chat_message_str():
-    msg = ChatMessage(source="user1", text="Hello", type=MessageType.CHAT, timestamp=1000000000)
+    msg = ChatMessage(source="user1", source_name="user1", text="Hello", type=MessageType.CHAT, timestamp=1000000000)
     s = str(msg)
     assert "user1" in s
     assert "Hello" in s

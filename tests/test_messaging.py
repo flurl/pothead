@@ -44,7 +44,7 @@ async def test_send_signal_message():
     mock_proc.stdin.drain = AsyncMock()
     set_signal_process(mock_proc)
 
-    msg = ChatMessage(source="Assistant", destination="user1",
+    msg = ChatMessage(source="Assistant", source_name="Assistant", destination="user1",
                       text="Hello", type=MessageType.CHAT)
     await send_signal_message(msg)
 
@@ -114,7 +114,7 @@ async def test_send_signal_message_with_formatting():
     mock_proc.stdin.drain = AsyncMock()
     set_signal_process(mock_proc)
 
-    msg = ChatMessage(source="Assistant", destination="user1",
+    msg = ChatMessage(source="Assistant", source_name="Assistant", destination="user1",
                       text="Hello **World**", type=MessageType.CHAT)
     await send_signal_message(msg)
 

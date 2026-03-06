@@ -112,6 +112,7 @@ class SignalMessage:
     Base class for all Signal messages.
     """
     source: str
+    source_name: str
     type: MessageType
     timestamp: int = field(default_factory=lambda: int(
         datetime.datetime.now().timestamp() * 1000))
@@ -141,23 +142,27 @@ class SignalMessage:
         if source is None:
             return None
 
+        source_name: str | None = envelope.get("sourceName")
+        if source_name is None:
+            source_name = source
+
         # messages from others to me
         if "dataMessage" in envelope:
             data_message: dict[str, Any] = envelope.get("dataMessage", {})
-            return ChatMessage.parse_message(data_message, source, is_synced=False)
+            return ChatMessage.parse_message(data_message, source, source_name, is_synced=False)
         elif "syncMessage" in envelope:
             if "sentMessage" in envelope["syncMessage"]:
                 sent_message: dict[str,
                                    Any] = envelope["syncMessage"]["sentMessage"]
                 if "editMessage" in sent_message:
-                    return EditMessage.parse_edit_message(sent_message, source, is_synced=True)
-                return ChatMessage.parse_message(sent_message, source, is_synced=True)
+                    return EditMessage.parse_edit_message(sent_message, source, source_name, is_synced=True)
+                return ChatMessage.parse_message(sent_message, source, source_name, is_synced=True)
         elif "receiptMessage" in envelope:
-            return ReceiptMessage.parse_receipt_message(envelope, source)
+            return ReceiptMessage.parse_receipt_message(envelope, source, source_name)
         elif "typingMessage" in envelope:
-            return TypingMessage.parse_typing_message(envelope, source)
+            return TypingMessage.parse_typing_message(envelope, source, source_name)
         elif "editMessage" in envelope:
-            return EditMessage.parse_edit_message(envelope, source, is_synced=False)
+            return EditMessage.parse_edit_message(envelope, source, source_name, is_synced=False)
 
         return None
 
@@ -209,7 +214,7 @@ class ChatMessage(SignalMessage):
         return msg_repr
 
     @classmethod
-    def parse_message(cls, message_body: dict[str, Any], source: str, is_synced: bool = False) -> "SignalMessage | None":
+    def parse_message(cls, message_body: dict[str, Any], source: str, source_name: str, is_synced: bool = False) -> "SignalMessage | None":
         timestamp: int | None = message_body.get("timestamp", None)
         if timestamp is None:
             return None
@@ -220,11 +225,12 @@ class ChatMessage(SignalMessage):
             destination = group_id
 
         if "reaction" in message_body:
-            return ReactionMessage.parse_reaction(message_body, source, timestamp, MessageType.REACTION)
+            return ReactionMessage.parse_reaction(message_body, source, source_name, timestamp, MessageType.REACTION)
 
         if "remoteDelete" in message_body:
             return DeleteMessage(
                 source=source,
+                source_name=source_name,
                 destination=destination,
                 type=MessageType.DELETE,
                 timestamp=timestamp,
@@ -238,6 +244,7 @@ class ChatMessage(SignalMessage):
             group_info: dict[str, Any] = message_body.get("groupInfo", {})
             return GroupUpdateMessage(
                 source=source,
+                source_name=source_name,
                 type=MessageType.GROUP_UPDATE,
                 timestamp=timestamp,
                 group_id=group_info.get("groupId"),
@@ -253,7 +260,7 @@ class ChatMessage(SignalMessage):
         quote: MessageQuote | None = MessageQuote.from_dict(
             raw_quote) if raw_quote else None
 
-        return cls(source=source, type=MessageType.CHAT, timestamp=timestamp, group_id=group_id, destination=destination, text=text, attachments=attachments, quote=quote, is_synced=is_synced)
+        return cls(source=source, source_name=source_name, type=MessageType.CHAT, timestamp=timestamp, group_id=group_id, destination=destination, text=text, attachments=attachments, quote=quote, is_synced=is_synced)
 
 
 @dataclass
@@ -261,7 +268,7 @@ class EditMessage(ChatMessage):
     target_sent_timestamp: int = 0
 
     @classmethod
-    def parse_edit_message(cls, msg_dict: dict[str, Any], source: str, is_synced: bool) -> "EditMessage | None":
+    def parse_edit_message(cls, msg_dict: dict[str, Any], source: str, source_name: str, is_synced: bool) -> "EditMessage | None":
         edit_dict: dict[str, Any] | None = msg_dict.get("editMessage")
         if edit_dict is None:
             return None
@@ -289,6 +296,7 @@ class EditMessage(ChatMessage):
 
         return cls(
             source=source,
+            source_name=source_name,
             type=MessageType.EDIT,
             timestamp=timestamp,
             group_id=group_id,
@@ -326,11 +334,12 @@ class ReactionMessage(SignalMessage):
     is_remove: bool
 
     @classmethod
-    def parse_reaction(cls, message_body: dict[str, Any], source: str, timestamp: int, msg_type: MessageType) -> "ReactionMessage":
+    def parse_reaction(cls, message_body: dict[str, Any], source: str, source_name: str, timestamp: int, msg_type: MessageType) -> "ReactionMessage":
         reaction: dict[str, Any] = message_body.get("reaction", {})
         group_id: str | None = message_body.get("groupInfo", {}).get("groupId")
         return cls(
             source=source,
+            source_name=source_name,
             type=msg_type,
             timestamp=timestamp,
             group_id=group_id,
@@ -349,7 +358,7 @@ class ReceiptMessage(SignalMessage):
     is_viewed: bool = False
 
     @classmethod
-    def parse_receipt_message(cls, envelope: dict[str, Any], source: str) -> "ReceiptMessage | None":
+    def parse_receipt_message(cls, envelope: dict[str, Any], source: str, source_name: str) -> "ReceiptMessage | None":
         receipt: dict[str, Any] = envelope.get("receiptMessage", {})
         timestamps: list[int] = receipt.get("timestamps", [])
         if not timestamps:
@@ -358,6 +367,7 @@ class ReceiptMessage(SignalMessage):
             datetime.datetime.now().timestamp() * 1000))
         return cls(
             source=source,
+            source_name=source_name,
             type=MessageType.RECEIPT,
             timestamp=when,
             timestamps=timestamps,
@@ -372,13 +382,14 @@ class TypingMessage(SignalMessage):
     action: str = field(kw_only=True)
 
     @classmethod
-    def parse_typing_message(cls, envelope: dict[str, Any], source: str) -> "TypingMessage | None":
+    def parse_typing_message(cls, envelope: dict[str, Any], source: str, source_name: str) -> "TypingMessage | None":
         typing: dict[str, Any] = envelope.get("typingMessage", {})
         timestamp: int | None = typing.get("timestamp")
         if timestamp is None:
             return None
         return cls(
             source=source,
+            source_name=source_name,
             type=MessageType.TYPING,
             timestamp=timestamp,
             group_id=typing.get("groupId"),
