@@ -1,4 +1,5 @@
 import dataclasses
+import glob
 import json
 import logging
 import os
@@ -7,6 +8,7 @@ from typing import Any, cast
 from datatypes import ChatMessage, DeleteMessage, EditMessage, Event, SignalMessage
 from plugin_manager import register_command, register_event_handler
 from utils import get_safe_chat_dir, save_attachment
+from .config import PluginSettings
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -17,6 +19,9 @@ ARCHIVES_DIR: str = os.path.join(os.path.dirname(__file__), "archives")
 ENABLED_CHATS_FILE: str = os.path.join(
     os.path.dirname(__file__), "enabled_chats.json"
 )
+
+PluginSettings.settings_path = os.path.dirname(__file__)
+plugin_settings = PluginSettings()
 
 
 def load_enabled_chats() -> set[str]:
@@ -41,6 +46,40 @@ def save_enabled_chats(chats: set[str]) -> None:
 
 
 enabled_chats: set[str] = load_enabled_chats()
+
+
+def _get_active_archive(chat_dir: str) -> str | None:
+    """Returns the path to the current active archive file (TS-.jsonl), or None."""
+    matches = glob.glob(os.path.join(chat_dir, "*-.jsonl"))
+    return matches[0] if matches else None
+
+
+def _count_lines_and_last_ts(filepath: str) -> tuple[int, int | None]:
+    """Returns (message_count, last_timestamp) by scanning the file."""
+    count = 0
+    last_ts: int | None = None
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    count += 1
+                    try:
+                        last_ts = json.loads(line).get("timestamp")
+                    except Exception:
+                        pass
+    except FileNotFoundError:
+        pass
+    return count, last_ts
+
+
+def _finalize_archive(filepath: str, last_timestamp: int) -> None:
+    """Renames TS1-.jsonl to TS1-TS2.jsonl."""
+    dirname = os.path.dirname(filepath)
+    basename = os.path.basename(filepath)  # e.g. "1000-.jsonl"
+    first_ts = basename[: -len("-.jsonl")]
+    new_path = os.path.join(dirname, f"{first_ts}-{last_timestamp}.jsonl")
+    os.rename(filepath, new_path)
 
 
 @register_command(plugin_id, "enablearchive", "Enables archiving for the current chat.")
@@ -90,12 +129,21 @@ async def on_chat_event(msg: SignalMessage) -> None:
 
         # Convert dataclass to dict for JSON serialization.
         msg_dict: dict[str, Any] = dataclasses.asdict(msg)
+        msg_dict["type"] = msg.type.value
 
-        # Append message to messages.jsonl
-        messages_file: str = os.path.join(chat_dir, "messages.jsonl")
-        with open(messages_file, "a", encoding="utf-8") as f:
-            # Manually convert enum to value for serialization
-            msg_dict["type"] = msg.type.value
+        # Find or create the active archive file.
+        active_file: str | None = _get_active_archive(chat_dir)
+
+        if active_file is not None:
+            count, last_ts = _count_lines_and_last_ts(active_file)
+            if count >= plugin_settings.max_messages_per_file:
+                _finalize_archive(active_file, last_ts or msg.timestamp)
+                active_file = None
+
+        if active_file is None:
+            active_file = os.path.join(chat_dir, f"{msg.timestamp}-.jsonl")
+
+        with open(active_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(msg_dict) + "\n")
 
         # Handle attachments for ChatMessage and EditMessage
@@ -104,9 +152,6 @@ async def on_chat_event(msg: SignalMessage) -> None:
             os.makedirs(att_dir, exist_ok=True)
 
             for att in msg.attachments:
-                # Construct destination filename
-                # Prefix with timestamp to group by message approximately
-                # Include attachment ID to be unique
                 safe_filename: str = (
                     os.path.basename(
                         att.filename) if att.filename else att.id
