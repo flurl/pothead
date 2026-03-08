@@ -51,6 +51,7 @@ def test_get_local_files():
     assert sorted(get_local_files(chat_id)) == sorted(expected_files)
     shutil.rmtree(chat_dir)
 
+
 def test_get_local_files_not_dir():
     chat_id = "non_existent_chat"
     with patch("utils.get_local_file_store_path", return_value="/non/existent/path"):
@@ -80,10 +81,13 @@ def test_load_permissions():
     os.remove(perms_file)
     shutil.rmtree(os.path.dirname(perms_file))
 
+
 def test_load_permissions_not_exists():
     chat_id = "no_perms_chat"
     loaded_perms = load_permissions(chat_id)
-    assert loaded_perms == {"users": {}, "groups": {"ALL": {"members": [], "permissions": []}}}
+    assert loaded_perms == {"users": {}, "groups": {
+        "ALL": {"members": [], "permissions": []}}}
+
 
 def test_load_permissions_error():
     chat_id = "error_chat"
@@ -94,6 +98,7 @@ def test_load_permissions_error():
                     loaded_perms = load_permissions(chat_id)
                     assert "groups" in loaded_perms
                     mock_logger.error.assert_called()
+
 
 def test_save_permissions():
     chat_id = "test_chat"
@@ -106,6 +111,7 @@ def test_save_permissions():
     assert saved_perms == perms_data
     os.remove(perms_file)
     shutil.rmtree(os.path.dirname(perms_file))
+
 
 def test_save_permissions_error():
     chat_id = "error_save_chat"
@@ -148,7 +154,8 @@ def test_check_permission():
 
 def test_update_chat_history():
     chat_id = "test_chat"
-    msg = ChatMessage(source=chat_id, source_name=chat_id, text="Hello", type=MessageType.CHAT)
+    msg = ChatMessage(source=chat_id, source_name=chat_id,
+                      text="Hello", type=MessageType.CHAT)
     with patch("utils.CHAT_HISTORY", {}) as mock_history:
         with patch("utils.settings.history_max_length", 2):
             update_chat_history(msg)
@@ -157,14 +164,17 @@ def test_update_chat_history():
             assert mock_history[msg.chat_id][0] == msg
 
             # Test edit
-            edit_msg = EditMessage(source=chat_id, source_name=chat_id, text="Hello Edited", type=MessageType.EDIT, target_sent_timestamp=msg.timestamp)
+            edit_msg = EditMessage(source=chat_id, source_name=chat_id, text="Hello Edited",
+                                   type=MessageType.EDIT, target_sent_timestamp=msg.timestamp)
             update_chat_history(edit_msg)
             assert mock_history[msg.chat_id][0].text == "Hello Edited"
 
             # Test delete
-            delete_msg = DeleteMessage(source=chat_id, source_name=chat_id, type=MessageType.DELETE, target_sent_timestamp=msg.timestamp)
+            delete_msg = DeleteMessage(source=chat_id, source_name=chat_id,
+                                       type=MessageType.DELETE, target_sent_timestamp=msg.timestamp)
             update_chat_history(delete_msg)
             assert len(mock_history[msg.chat_id]) == 0
+
 
 def test_update_chat_history_other_type():
     msg = MagicMock()
@@ -173,16 +183,20 @@ def test_update_chat_history_other_type():
         update_chat_history(msg)
         assert len(mock_history) == 0
 
+
 def test_update_chat_history_edit_not_in_history():
     chat_id = "test_chat"
-    edit_msg = EditMessage(source=chat_id, source_name=chat_id, text="Hello Edited", type=MessageType.EDIT, target_sent_timestamp=123)
+    edit_msg = EditMessage(source=chat_id, source_name=chat_id,
+                           text="Hello Edited", type=MessageType.EDIT, target_sent_timestamp=123)
     with patch("utils.CHAT_HISTORY", {}) as mock_history:
         update_chat_history(edit_msg)
         assert len(mock_history) == 0
 
+
 def test_update_chat_history_delete_not_in_history():
     chat_id = "test_chat"
-    delete_msg = DeleteMessage(source=chat_id, source_name=chat_id, type=MessageType.DELETE, target_sent_timestamp=123)
+    delete_msg = DeleteMessage(source=chat_id, source_name=chat_id,
+                               type=MessageType.DELETE, target_sent_timestamp=123)
     with patch("utils.CHAT_HISTORY", {}) as mock_history:
         update_chat_history(delete_msg)
         assert len(mock_history) == 0
@@ -204,7 +218,8 @@ def test_get_chat_id():
     assert get_chat_id(data) == "group456"
 
     # Test with no group info but sync message
-    data = {"params": {"envelope": {"source": "user789", "syncMessage": {"sentMessage": {"message": "hello"}}}}}
+    data = {"params": {"envelope": {"source": "user789",
+                                    "syncMessage": {"sentMessage": {"message": "hello"}}}}}
     assert get_chat_id(data) == "user789"
 
 
@@ -244,13 +259,17 @@ def test_save_attachment():
 
     shutil.rmtree(dest_dir)
 
+
 def test_save_attachment_not_found():
-    att = Attachment(id="non_existent", filename="test.txt", content_type="text/plain", size=1)
+    att = Attachment(id="non_existent", filename="test.txt",
+                     content_type="text/plain", size=1)
     with patch("utils.settings.signal_attachments_path", "/tmp/signal_attachments"):
         assert save_attachment(att, "/tmp") is None
 
+
 def test_save_attachment_error():
-    att = Attachment(id="att1", filename="test.txt", content_type="text/plain", size=1)
+    att = Attachment(id="att1", filename="test.txt",
+                     content_type="text/plain", size=1)
     dest_dir = "/tmp/attachments"
     os.makedirs(dest_dir, exist_ok=True)
     with patch("utils.settings.signal_attachments_path", "/tmp/signal_attachments"):
@@ -266,4 +285,45 @@ def test_save_attachment_error():
                 mock_logger.error.assert_called()
 
         shutil.rmtree(signal_attachments_path)
+    shutil.rmtree(dest_dir)
+
+
+def test_save_attachment_symlink_creation():
+    """
+    Tests that a symlink with a guessed extension is created when saving an
+    attachment whose destination name has no extension.
+    """
+    # Attachment with a known content type but no file extension in its name
+    att = Attachment(id="att_no_ext", filename="image_file",
+                     content_type="image/jpeg", size=1)
+    dest_dir = "/tmp/attachments_test_symlink"
+    os.makedirs(dest_dir, exist_ok=True)
+
+    # Mock signal attachments path and create a dummy source file
+    with patch("utils.settings.signal_attachments_path", "/tmp/signal_attachments_test"):
+        signal_attachments_path = "/tmp/signal_attachments_test"
+        os.makedirs(signal_attachments_path, exist_ok=True)
+        src_file = os.path.join(signal_attachments_path, att.id)
+        with open(src_file, "w") as f:
+            f.write("dummy image data")
+
+        # Mock os.symlink to check its call
+        with patch("os.symlink") as mock_symlink:
+            # Call the function
+            dest_file = save_attachment(att, dest_dir)
+
+            # Assertions
+            assert dest_file is not None
+
+            # Check original file was copied
+            expected_dest_path = os.path.join(dest_dir, "image_file")
+            assert os.path.exists(expected_dest_path)
+
+            # Check symlink was called correctly
+            expected_link_path = os.path.join(dest_dir, "image_file.jpg")
+            mock_symlink.assert_called_once_with(
+                "image_file", expected_link_path)
+
+        shutil.rmtree(signal_attachments_path)
+
     shutil.rmtree(dest_dir)

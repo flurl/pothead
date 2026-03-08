@@ -14,6 +14,7 @@ It includes helpers for:
 import hashlib
 import json
 import logging
+import mimetypes
 import os
 import shutil
 from typing import Any, cast
@@ -163,6 +164,7 @@ def save_attachment(att: Attachment, dest_dir: str, filename: str | None = None)
         logger.warning(f"Attachment file not found: {src}")
         return None
 
+    dest_name: str
     if filename:
         dest_name = filename
     else:
@@ -182,6 +184,19 @@ def save_attachment(att: Attachment, dest_dir: str, filename: str | None = None)
     try:
         shutil.copy2(src, dest)
         logger.info(f"Saved attachment {att.id} to {dest}")
+        if not os.path.splitext(dest_name)[1]:
+            ext: str | None = mimetypes.guess_extension(att.content_type)
+            if ext:
+                link_name: str = f"{dest_name}{ext}"
+                link_path: str = os.path.join(dest_dir, link_name)
+                try:
+                    if not os.path.exists(link_path):
+                        os.symlink(dest_name, link_path)
+                        logger.info(
+                            f"Created symlink {link_path} -> {dest_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to create symlink for {dest}: {e}")
+
         return dest
     except Exception as e:
         logger.error(f"Failed to copy attachment {src} to {dest}: {e}")
