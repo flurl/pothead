@@ -6,6 +6,28 @@ set -euo pipefail
 # 2 = No new release, no action taken
 # 1 = Error occurred
 
+# --- ARGUMENT PARSING ---
+LIBSIGNAL_JAVA_HOME=""
+SIGNALCLI_JAVA_HOME=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --libsignal-java-home)
+            LIBSIGNAL_JAVA_HOME="$2"
+            shift 2
+            ;;
+        --signalcli-java-home)
+            SIGNALCLI_JAVA_HOME="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            echo "Usage: $0 [--libsignal-java-home <path>] [--signalcli-java-home <path>]"
+            exit 1
+            ;;
+    esac
+done
+
 # Set base directory to the folder where this script is stored (no hardcoded paths)
 BASE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$BASE_DIR"
@@ -78,8 +100,11 @@ fi
 
 # Build libsignal first
 # libsignal uses gradle 8.13 which does not work with Java 25
-OLD_JAVA_HOME=$JAVA_HOME
-unset JAVA_HOME
+OLD_JAVA_HOME="${JAVA_HOME:-}"
+if [ -n "$LIBSIGNAL_JAVA_HOME" ]; then
+    echo "==> Using --libsignal-java-home: $LIBSIGNAL_JAVA_HOME"
+    export JAVA_HOME="$LIBSIGNAL_JAVA_HOME"
+fi
 cd $LIBSIGNAL_DIR/java
 echo -e "\n==> Building libsignal JNI bindings..."
 ./build_jni.sh desktop
@@ -87,9 +112,13 @@ echo -e "\n==> Building libsignal client library..."
 ./gradlew --no-daemon :client:assemble -PskipAndroid=true
 cd "$BASE_DIR"
 
-# use old java home. signal-cli uses gradle 9.3 which does not work with older java releases
-JAVA_HOME=$OLD_JAVA_HOME
-export JAVA_HOME
+# use old java home (or signalcli-specific override). signal-cli uses gradle 9.3 which does not work with older java releases
+if [ -n "$SIGNALCLI_JAVA_HOME" ]; then
+    echo "==> Using --signalcli-java-home: $SIGNALCLI_JAVA_HOME"
+    export JAVA_HOME="$SIGNALCLI_JAVA_HOME"
+else
+    export JAVA_HOME="$OLD_JAVA_HOME"
+fi
 
 # Dynamically find the built libsignal jar (NO MORE HARDCODED VERSION NUMBERS!)
 LIBSIGNAL_JAR=$(find "$LIBSIGNAL_DIR/java/client/build/libs" -name "libsignal-client-*.jar" -type f |grep -v "sources.jar" | head -n 1)
