@@ -104,3 +104,11 @@ The **echo** plugin (`plugins/echo/`) is the canonical reference implementation 
 ### Pending Replies
 
 `PENDING_REPLIES` dict in `plugin_manager.py` maps JSON-RPC request IDs to callbacks. When `signal-cli` responds to a request (identified by `id`), the callback is invoked and removed. Used by `messaging.py` to handle `send` confirmations and `listGroups` responses.
+
+## Coding Standards
+
+- **Type hints:** Always use type hints on all function signatures and variable annotations where possible. This applies to all Python files including plugins.
+
+## Before Committing
+
+- **Test coverage:** Before creating a commit, assess whether the changes warrant new or updated test cases. If so, write them before committing.
