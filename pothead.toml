@@ -10,6 +10,9 @@
 # Path to your signal-cli executable
 signal_cli_path = "signal-cli/signal-cli"
 
+# Is this a dedicated signal account
+dedicated_account = false
+
 # Words to trigger the bot
 trigger_words = ["!pot", "!pothead", "!ph"]
 

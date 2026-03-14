@@ -25,7 +25,8 @@ with patch.dict('sys.modules', {
     gemini_module = gemini_main_module
     from plugins.gemini.main import (
         GeminiProvider,
-        action_send_to_gemini,
+        _extract_gemini_prompt,
+        on_chat_message,
         image_to_part,
         chat_with_gemini,
         cmd_add_ctx,
@@ -37,7 +38,7 @@ with patch.dict('sys.modules', {
         load_sys_instructions,
         save_sys_instructions
     )
-    from datatypes import ChatMessage, MessageQuote, MessageType
+    from datatypes import ChatMessage, Mention, MessageQuote, MessageType
 
 
 def test_image_to_part():
@@ -101,95 +102,168 @@ def mock_messaging():
         yield {"direct": mock_direct, "group": mock_group}
 
 
-# --- Test Data ---
+# --- Helpers ---
 
-DATA_MESSAGE_DIRECT = {
-    "params": {
-        "envelope": {
-            "source": "+12345", "sourceDevice": 1,
-            "dataMessage": {
-                "timestamp": 1678886400000,
-                "message": "!ping How are you?",
-                "groupInfo": {}
-            }
-        }
-    }
-}
-DATA_MESSAGE_GROUP = {
-    "params": {
-        "envelope": {
-            "source": "+12345", "sourceDevice": 1,
-            "dataMessage": {
-                "timestamp": 1678886400000,
-                "message": "!ping How are you?",
-                "groupInfo": {"groupId": "group123"}
-            }
-        }
-    }
-}
+def make_chat_msg(text=None, source="+12345", destination=None, group_id=None,
+                  quote_text=None, attachments=None, mentions=None):
+    quote = MessageQuote(id=1, author=source, author_number=source, author_uuid="u",
+                         text=quote_text) if quote_text else None
+    return ChatMessage(
+        source=source, source_name=source,
+        destination=destination, group_id=group_id,
+        text=text, type=MessageType.CHAT, timestamp=1678886400000,
+        quote=quote, attachments=attachments, mentions=mentions,
+    )
+
+
+# --- Tests for _extract_gemini_prompt (trigger word mode) ---
+
+def test_extract_gemini_prompt_trigger_match():
+    with patch.object(gemini_module.settings, 'trigger_words', ["!ping"]), \
+         patch.object(gemini_module.settings, 'dedicated_account', False):
+        msg = make_chat_msg(text="!ping How are you?")
+        prompt, ok = _extract_gemini_prompt(msg)
+        assert ok
+        assert prompt == "How are you?"
+
+
+def test_extract_gemini_prompt_trigger_no_match():
+    with patch.object(gemini_module.settings, 'trigger_words', ["!ping"]), \
+         patch.object(gemini_module.settings, 'dedicated_account', False):
+        msg = make_chat_msg(text="hello world")
+        prompt, ok = _extract_gemini_prompt(msg)
+        assert not ok
+
+
+def test_extract_gemini_prompt_trigger_command_skipped():
+    with patch.object(gemini_module.settings, 'trigger_words', ["!ping"]), \
+         patch.object(gemini_module.settings, 'dedicated_account', False):
+        msg = make_chat_msg(text="!ping #addctx 1")
+        prompt, ok = _extract_gemini_prompt(msg)
+        assert not ok
+
+
+def test_extract_gemini_prompt_trigger_only_with_attachment():
+    """Trigger word alone (no prompt text) but with attachments should process."""
+    with patch.object(gemini_module.settings, 'trigger_words', ["!ping"]), \
+         patch.object(gemini_module.settings, 'dedicated_account', False):
+        from datatypes import Attachment
+        msg = make_chat_msg(text="", attachments=[Attachment(id="a1", content_type="image/jpeg", size=1)])
+        prompt, ok = _extract_gemini_prompt(msg)
+        assert ok
+
+
+# --- Tests for _extract_gemini_prompt (dedicated_account mode) ---
+
+def test_extract_gemini_prompt_dedicated_is_recipient():
+    with patch.object(gemini_module.settings, 'dedicated_account', True), \
+         patch.object(gemini_module.settings, 'signal_account', "+bot"):
+        msg = make_chat_msg(text="Hello bot", destination="+bot")
+        prompt, ok = _extract_gemini_prompt(msg)
+        assert ok
+        assert prompt == "Hello bot"
+
+
+def test_extract_gemini_prompt_dedicated_is_mentioned():
+    with patch.object(gemini_module.settings, 'dedicated_account', True), \
+         patch.object(gemini_module.settings, 'signal_account', "+bot"):
+        mention = Mention(number="+bot", uuid="bot-uuid", start=0, length=1)
+        msg = make_chat_msg(text="hey bot", group_id="group1", mentions=[mention])
+        prompt, ok = _extract_gemini_prompt(msg)
+        assert ok
+        assert prompt == "hey bot"
+
+
+def test_extract_gemini_prompt_dedicated_not_recipient_not_mentioned():
+    with patch.object(gemini_module.settings, 'dedicated_account', True), \
+         patch.object(gemini_module.settings, 'signal_account', "+bot"):
+        msg = make_chat_msg(text="just a group message", destination="+other", group_id="group1")
+        prompt, ok = _extract_gemini_prompt(msg)
+        assert not ok
+
+
+def test_extract_gemini_prompt_dedicated_command_skipped():
+    with patch.object(gemini_module.settings, 'dedicated_account', True), \
+         patch.object(gemini_module.settings, 'signal_account', "+bot"):
+        msg = make_chat_msg(text="#help", destination="+bot")
+        prompt, ok = _extract_gemini_prompt(msg)
+        assert not ok
+
+
+def test_extract_gemini_prompt_dedicated_mention_wrong_number():
+    with patch.object(gemini_module.settings, 'dedicated_account', True), \
+         patch.object(gemini_module.settings, 'signal_account', "+bot"):
+        mention = Mention(number="+someone_else", uuid="uuid", start=0, length=1)
+        msg = make_chat_msg(text="hey", group_id="group1", mentions=[mention])
+        prompt, ok = _extract_gemini_prompt(msg)
+        assert not ok
+
+
+# --- Tests for on_chat_message event handler ---
+
+@pytest.mark.asyncio
+async def test_on_chat_message_direct(mock_gemini_provider, mock_messaging):
+    with patch.object(gemini_module.settings, 'trigger_words', ["!ping"]), \
+         patch.object(gemini_module.settings, 'dedicated_account', False):
+        msg = make_chat_msg(text="!ping How are you?", source="+12345", destination="+12345")
+        await on_chat_message(msg)
+
+        google_mock.genai.types.Part.assert_any_call(text="How are you?")
+        mock_gemini_provider["get_response"].assert_called_once()
+        mock_messaging["direct"].assert_called_once_with("Mocked Gemini Response", "+12345")
+        assert not mock_messaging["group"].called
 
 
 @pytest.mark.asyncio
-async def test_action_send_to_gemini(mock_gemini_provider, mock_messaging):
-    with patch.object(gemini_module.settings, 'trigger_words', ["!ping"]):
-        # --- Test direct message ---
-        await action_send_to_gemini(DATA_MESSAGE_DIRECT)
+async def test_on_chat_message_group(mock_gemini_provider, mock_messaging):
+    with patch.object(gemini_module.settings, 'trigger_words', ["!ping"]), \
+         patch.object(gemini_module.settings, 'dedicated_account', False):
+        msg = make_chat_msg(text="!ping How are you?", source="+12345", group_id="group123")
+        await on_chat_message(msg)
 
-        google_mock.genai.types.Part.assert_any_call(text="How are you?")
-        part_instance = google_mock.genai.types.Part.return_value
-
-        mock_gemini_provider["get_response"].assert_called_once_with(
-            "+12345", [part_instance])
-        mock_messaging["direct"].assert_called_once_with(
-            "Mocked Gemini Response", "+12345")
-        assert not mock_messaging["group"].called
-        mock_gemini_provider["get_response"].reset_mock()
-        mock_messaging["direct"].reset_mock()
-
-        # --- Test group message ---
-        await action_send_to_gemini(DATA_MESSAGE_GROUP)
-
-        google_mock.genai.types.Part.assert_called_with(text="How are you?")
-        mock_gemini_provider["get_response"].assert_called_once_with(
-            "group123", [part_instance])
-        mock_messaging["group"].assert_called_once_with(
-            "Mocked Gemini Response", "group123")
+        args, _ = mock_gemini_provider["get_response"].call_args
+        assert args[0] == "group123"
+        mock_messaging["group"].assert_called_once_with("Mocked Gemini Response", "group123")
         assert not mock_messaging["direct"].called
-        mock_gemini_provider["get_response"].reset_mock()
-        mock_messaging["group"].reset_mock()
 
-        # --- Test with quote ---
-        msg_with_quote = copy.deepcopy(DATA_MESSAGE_DIRECT)
-        msg_with_quote["params"]["envelope"]["dataMessage"]["quote"] = {
-            "text": "This is a quoted message."}
-        await action_send_to_gemini(msg_with_quote)
-        expected_prompt = "How are you?\n\n>> This is a quoted message."
-        google_mock.genai.types.Part.assert_called_with(text=expected_prompt)
-        mock_gemini_provider["get_response"].assert_called_once_with(
-            "+12345", [part_instance])
-        mock_gemini_provider["get_response"].reset_mock()
 
-    # --- Test no trigger ---
-    with patch.object(gemini_module.settings, 'trigger_words', ["!another"]):
-        await action_send_to_gemini(DATA_MESSAGE_DIRECT)
-        assert not mock_gemini_provider["get_response"].called
+@pytest.mark.asyncio
+async def test_on_chat_message_with_quote(mock_gemini_provider, mock_messaging):
+    with patch.object(gemini_module.settings, 'trigger_words', ["!ping"]), \
+         patch.object(gemini_module.settings, 'dedicated_account', False):
+        msg = make_chat_msg(text="!ping Ask this", source="+12345",
+                            destination="+12345", quote_text="Quoted text")
+        await on_chat_message(msg)
 
-    # --- Test with image attachment ---
-    with patch.object(gemini_module.settings, 'trigger_words', ["!ping"]):
-        with patch('plugins.gemini.main.os.path.exists', return_value=True):
-            with patch.object(gemini_module, 'image_to_part', side_effect=lambda x: MagicMock()) as mock_i2p:
-                msg_with_att = copy.deepcopy(DATA_MESSAGE_DIRECT)
-                msg_with_att["params"]["envelope"]["dataMessage"]["attachments"] = [
-                    {"id": "att1", "contentType": "image/jpeg", "size": 100}
-                ]
+        expected = "Ask this\n\n>> Quoted text"
+        google_mock.genai.types.Part.assert_any_call(text=expected)
+        mock_gemini_provider["get_response"].assert_called_once()
 
-                await action_send_to_gemini(msg_with_att)
 
-                assert mock_i2p.called
-            assert mock_gemini_provider["get_response"].called
-            # Should have 2 parts: text and image
-            args, _ = mock_gemini_provider["get_response"].call_args
-            assert len(args[1]) == 2
+@pytest.mark.asyncio
+async def test_on_chat_message_no_trigger(mock_gemini_provider, mock_messaging):
+    with patch.object(gemini_module.settings, 'trigger_words', ["!ping"]), \
+         patch.object(gemini_module.settings, 'dedicated_account', False):
+        msg = make_chat_msg(text="just a regular message")
+        await on_chat_message(msg)
+        mock_gemini_provider["get_response"].assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_on_chat_message_with_image(mock_gemini_provider, mock_messaging):
+    with patch.object(gemini_module.settings, 'trigger_words', ["!ping"]), \
+         patch.object(gemini_module.settings, 'dedicated_account', False), \
+         patch('plugins.gemini.main.os.path.exists', return_value=True), \
+         patch.object(gemini_module, 'image_to_part', side_effect=lambda x: MagicMock()) as mock_i2p:
+        from datatypes import Attachment
+        att = Attachment(id="att1", content_type="image/jpeg", size=100)
+        msg = make_chat_msg(text="!ping look at this", source="+12345",
+                            destination="+12345", attachments=[att])
+        await on_chat_message(msg)
+
+        assert mock_i2p.called
+        args, _ = mock_gemini_provider["get_response"].call_args
+        assert len(args[1]) == 2  # text part + image part
 
 
 @pytest.mark.asyncio

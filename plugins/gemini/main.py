@@ -24,7 +24,7 @@ import io
 import logging
 import os
 from collections import deque
-from typing import Any, cast
+from typing import cast
 
 from google.genai.client import Client
 from google.genai import types
@@ -32,9 +32,9 @@ from google.genai.pagers import Pager
 from PIL import Image
 
 from config import settings
-from datatypes import ChatMessage, MessageType, Priority, SignalMessage
+from datatypes import ChatMessage, Event, MessageType
 from messaging import send_signal_direct_message, send_signal_group_message
-from plugin_manager import get_plugin_settings, register_action, register_command, register_service
+from plugin_manager import get_plugin_settings, register_command, register_event_handler, register_service
 from state import CHAT_HISTORY
 from utils import get_local_files, get_safe_chat_dir, update_chat_history
 
@@ -298,54 +298,52 @@ async def chat_with_ai(msg: ChatMessage) -> bool:
     return True
 
 
-@register_action(
-    "gemini",
-    name="Handle Gemini in Sync Message",
-    jsonpath="$.params.envelope.syncMessage.sentMessage.message",
-    filter=lambda match: match.value and match.value.strip(
-    ).upper().startswith(tuple(w.upper() for w in settings.trigger_words)),
-    priority=Priority.HIGH,
-)
-@register_action(
-    "gemini",
-    name="Handle Gemini in Data Message",
-    jsonpath="$.params.envelope.dataMessage.message",
-    filter=lambda match: match.value and match.value.strip(
-    ).upper().startswith(tuple(w.upper() for w in settings.trigger_words)),
-    priority=Priority.HIGH,
-)
-async def action_send_to_gemini(data: dict[str, Any]) -> bool:
-    """Handles AI prompts."""
-    # ctx: MessageContext | None = extract_message_context(data)
-    msg: SignalMessage | None = SignalMessage.from_json(data)
-    if msg and msg.type == MessageType.CHAT:
-        msg = cast(ChatMessage, msg)
-    else:
-        return False
+def _extract_gemini_prompt(msg: ChatMessage) -> tuple[str | None, bool]:
+    """
+    Checks whether the message should be processed by Gemini and returns the prompt.
 
-    # Check Prefixes
-    clean_msg: str = msg.text and msg.text.strip() or ""
-    prompt: str | None = None
+    In dedicated_account mode: process if the bot is the direct recipient or is @mentioned.
+    Otherwise: process if the message starts with a trigger word.
 
-    # Sort triggers by length to match longest first ("!pothead" before "!pot")
+    Returns (prompt, should_process).
+    """
+    if settings.dedicated_account:
+        is_recipient: bool = msg.destination == settings.signal_account
+        is_mentioned: bool = msg.mentions is not None and any(
+            m.number == settings.signal_account for m in msg.mentions
+        )
+        if not (is_recipient or is_mentioned):
+            return None, False
+        clean_msg: str = msg.text and msg.text.strip() or ""
+        if clean_msg.startswith("#"):
+            return None, False
+        return clean_msg or None, bool(clean_msg or msg.attachments)
+
+    clean_msg = msg.text and msg.text.strip() or ""
     for tw in sorted(settings.trigger_words, key=len, reverse=True):
         if clean_msg.upper().startswith(tw.upper()):
             content: str = clean_msg[len(tw):].strip()
-            # Ignore commands notes starting with #
             if content.startswith("#"):
-                return False
-            prompt = content
-            break
+                return None, False
+            return content, True
+    if not clean_msg and msg.attachments:
+        return None, True
+    return None, False
 
-    # If no prompt text and no attachments (and we are here), it might just be a matched prefix with empty body?
-    # Logic: If prompt is None here, it means the message didn't start with a trigger word.
-    # However, the filter in register_action should have caught this.
-    # We handle the case where it's ONLY a trigger word.
-    if prompt is None and not msg.attachments:
-        return False
+
+@register_event_handler(plugin_id, Event.CHAT_MESSAGE_RECEIVED)
+async def on_chat_message(msg: ChatMessage) -> None:
+    """Handles AI prompts from incoming and synced messages."""
+    if msg.type != MessageType.CHAT:
+        return
+
+    prompt: str | None
+    should_process: bool
+    prompt, should_process = _extract_gemini_prompt(msg)
+    if not should_process:
+        return
 
     await process_gemini_message(msg, prompt)
-    return True
 
 
 @register_command("gemini", "addctx",

@@ -4,6 +4,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 from datatypes import (
     Attachment,
+    Mention,
     MessageQuote,
     ChatMessage,
     Action,
@@ -19,6 +20,25 @@ from datatypes import (
     DeleteMessage,
     GroupUpdateMessage,
 )
+
+
+def test_mention_from_dict():
+    data = {"number": "+1234", "uuid": "abc-123", "start": 0, "length": 1, "name": "Alice"}
+    m = Mention.from_dict(data)
+    assert m.number == "+1234"
+    assert m.uuid == "abc-123"
+    assert m.start == 0
+    assert m.length == 1
+    assert m.name == "Alice"
+
+
+def test_mention_from_dict_defaults():
+    m = Mention.from_dict({})
+    assert m.number == ""
+    assert m.uuid == ""
+    assert m.start == 0
+    assert m.length == 1
+    assert m.name is None
 
 
 def test_attachment_from_dict():
@@ -339,3 +359,59 @@ def test_chat_message_str():
 
     msg.quote = MessageQuote(id=1, author="auth", author_number="n", author_uuid="u", text="q")
     assert "Quote (from auth): q" in str(msg)
+
+
+def test_signal_message_from_json_with_mentions():
+    data = {
+        "params": {
+            "envelope": {
+                "source": "user1",
+                "dataMessage": {
+                    "timestamp": 123,
+                    "message": "\ufffc hey",
+                    "mentions": [
+                        {"number": "+999", "uuid": "uuid-1", "start": 0, "length": 1, "name": "+999"}
+                    ],
+                    "groupInfo": {"groupId": "group1"},
+                },
+            }
+        }
+    }
+    msg = SignalMessage.from_json(data)
+    assert isinstance(msg, ChatMessage)
+    assert msg.mentions is not None
+    assert len(msg.mentions) == 1
+    assert msg.mentions[0].number == "+999"
+    assert msg.mentions[0].uuid == "uuid-1"
+
+
+def test_signal_message_from_json_no_mentions_is_none():
+    data = {
+        "params": {
+            "envelope": {
+                "source": "user1",
+                "dataMessage": {"timestamp": 123, "message": "hello"},
+            }
+        }
+    }
+    msg = SignalMessage.from_json(data)
+    assert isinstance(msg, ChatMessage)
+    assert msg.mentions is None
+
+
+def test_signal_message_direct_message_gets_signal_account_as_destination():
+    """Direct messages (no group, no destination in payload) should have destination=signal_account."""
+    from unittest.mock import patch
+    with patch("datatypes.settings") as mock_settings:
+        mock_settings.signal_account = "+mybot"
+        data = {
+            "params": {
+                "envelope": {
+                    "source": "+sender",
+                    "dataMessage": {"timestamp": 123, "message": "hi"},
+                }
+            }
+        }
+        msg = SignalMessage.from_json(data)
+    assert isinstance(msg, ChatMessage)
+    assert msg.destination == "+mybot"

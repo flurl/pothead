@@ -17,9 +17,30 @@ import logging
 
 import jsonpath_ng.ext
 
+from config import settings
+
 logger: logging.Logger = logging.getLogger(__name__)
 
 Permissions: TypeAlias = dict[str, dict[str, list[str] | dict[str, list[str]]]]
+
+
+@dataclass
+class Mention:
+    number: str
+    uuid: str
+    start: int
+    length: int
+    name: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        return cls(
+            number=data.get("number", ""),
+            uuid=data.get("uuid", ""),
+            start=data.get("start", 0),
+            length=data.get("length", 1),
+            name=data.get("name"),
+        )
 
 
 @dataclass
@@ -187,6 +208,7 @@ class ChatMessage(SignalMessage):
     text: str | None = None
     attachments: list[Attachment] | None = None
     quote: MessageQuote | None = None
+    mentions: list[Mention] | None = None
 
     @property
     def chat_id(self) -> str:
@@ -223,6 +245,9 @@ class ChatMessage(SignalMessage):
         destination: str | None = message_body.get("destination")
         if not destination:
             destination = group_id
+        # no group id and no destination where found -> direct message to me
+        if not group_id and not destination:
+            destination = settings.signal_account
 
         if "reaction" in message_body:
             return ReactionMessage.parse_reaction(message_body, source, source_name, timestamp, MessageType.REACTION)
@@ -259,8 +284,10 @@ class ChatMessage(SignalMessage):
         raw_quote: dict[str, Any] | None = message_body.get("quote")
         quote: MessageQuote | None = MessageQuote.from_dict(
             raw_quote) if raw_quote else None
+        mentions: list[Mention] | None = [Mention.from_dict(
+            m) for m in message_body.get("mentions", [])] or None
 
-        return cls(source=source, source_name=source_name, type=MessageType.CHAT, timestamp=timestamp, group_id=group_id, destination=destination, text=text, attachments=attachments, quote=quote, is_synced=is_synced)
+        return cls(source=source, source_name=source_name, type=MessageType.CHAT, timestamp=timestamp, group_id=group_id, destination=destination, text=text, attachments=attachments, quote=quote, mentions=mentions, is_synced=is_synced)
 
 
 @dataclass

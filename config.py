@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     signal_attachments_path: str = os.path.expanduser(
         "~/.local/share/signal-cli/attachments"
     )
+    dedicated_account: bool = False
     permissions_store_path: str = "permissions"
     trigger_words: list[str] = ["!pot", "!pothead", "!ph"]
     file_store_path: str = "document_store"
