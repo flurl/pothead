@@ -415,3 +415,54 @@ def test_signal_message_direct_message_gets_signal_account_as_destination():
         msg = SignalMessage.from_json(data)
     assert isinstance(msg, ChatMessage)
     assert msg.destination == "+mybot"
+
+
+# --- chat_id property ---
+
+def test_chat_id_incoming_group_message():
+    """Group messages return group_id regardless of mode."""
+    msg = ChatMessage(source="+sender", source_name="Sender", type=MessageType.CHAT,
+                      group_id="group-abc", destination="+bot")
+    assert msg.chat_id == "group-abc"
+
+
+def test_chat_id_incoming_dm():
+    """Incoming DM: is_synced=False → chat_id=source."""
+    msg = ChatMessage(source="+michi", source_name="Michi", type=MessageType.CHAT,
+                      destination="+bot-account", is_synced=False)
+    assert msg.chat_id == "+michi"
+
+
+def test_chat_id_synced_dm_without_destination():
+    """Synced message with no destination falls back to source."""
+    msg = ChatMessage(source="+me", source_name="Me", type=MessageType.CHAT,
+                      destination=None, is_synced=True)
+    assert msg.chat_id == "+me"
+
+
+def test_chat_id_outgoing_group_sync():
+    """Outgoing group sync: is_synced=True, group_id set → chat_id=group_id."""
+    msg = ChatMessage(source="+me", source_name="Me", type=MessageType.CHAT,
+                      group_id="group-abc", is_synced=True)
+    assert msg.chat_id == "group-abc"
+
+
+def test_chat_id_outgoing_dm_sync():
+    """Outgoing DM sync: is_synced=True, destination=recipient → chat_id=destination."""
+    msg = ChatMessage(source="+me", source_name="Me", type=MessageType.CHAT,
+                      destination="+michi", is_synced=True)
+    assert msg.chat_id == "+michi"
+
+
+def test_chat_id_edit_message_inherits():
+    """EditMessage inherits chat_id from ChatMessage."""
+    msg = EditMessage(source="+sender", source_name="Sender", type=MessageType.EDIT,
+                      destination="+bot", is_synced=False, target_sent_timestamp=123)
+    assert msg.chat_id == "+sender"
+
+
+def test_chat_id_delete_message_inherits():
+    """DeleteMessage inherits chat_id from ChatMessage."""
+    msg = DeleteMessage(source="+sender", source_name="Sender", type=MessageType.DELETE,
+                        destination="+bot", is_synced=False, target_sent_timestamp=123)
+    assert msg.chat_id == "+sender"

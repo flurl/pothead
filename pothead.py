@@ -127,7 +127,7 @@ async def handle_command(data: dict[str, Any]) -> bool:
 
                 await send_signal_message(response, attachments=response_attachments)
                 update_chat_history(response)
-                logger.info(f"Sent response to {msg.source}")
+                logger.info(f"Sent response to {chat_id}")
                 return True
 
     return False
@@ -174,14 +174,6 @@ def command_filter(match: DatumInContext) -> bool:
 # the order is important as we want to first check for !TRIGGER#CMD and then for just !TRIGGER
 ACTIONS: list[Action] = [
     Action(
-        name="Handle incomming message",
-        jsonpath="$.params.envelope",
-        filter=None,
-        handler=handle_incomming_message,
-        priority=Priority.SYS,
-        origin="sys"
-    ),
-    Action(
         name="Handle Command in Data Message",
         jsonpath="$.params.envelope.dataMessage.message",
         filter=command_filter,
@@ -196,7 +188,15 @@ ACTIONS: list[Action] = [
         handler=handle_command,
         priority=Priority.SYS,
         origin="sys"
-    )
+    ),
+    Action(
+        name="Handle incomming message",
+        jsonpath="$.params.envelope",
+        filter=None,
+        handler=handle_incomming_message,
+        priority=Priority.SYS,
+        origin="sys"
+    ),
 ]
 
 

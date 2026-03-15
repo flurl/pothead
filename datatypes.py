@@ -213,7 +213,11 @@ class ChatMessage(SignalMessage):
     @property
     def chat_id(self) -> str:
         """Returns the ID of the chat context (group ID or sender)."""
-        return (self.destination or self.group_id or self.source)
+        if self.group_id:
+            return self.group_id
+        if self.is_synced and self.destination:
+            return self.destination
+        return self.source
 
     def __str__(self) -> str:
         sender_info: str = self.source
@@ -340,11 +344,6 @@ class EditMessage(ChatMessage):
 class DeleteMessage(ChatMessage):
     # destination: str | None = None
     target_sent_timestamp: int = 0
-
-    @property
-    def chat_id(self) -> str:
-        """Returns the ID of the chat context (group ID or sender)."""
-        return self.destination if self.destination else self.source
 
 
 @dataclass

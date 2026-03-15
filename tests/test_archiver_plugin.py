@@ -98,7 +98,7 @@ async def test_on_chat_event_not_enabled():
 async def test_on_chat_event_chat_message():
     chat_id = "chat123"
     archiver_main.enabled_chats.add(chat_id)
-    msg = ChatMessage(source="+123", source_name="+123", destination=chat_id, type=MessageType.CHAT, text="Hello", timestamp=1000)
+    msg = ChatMessage(source=chat_id, source_name=chat_id, type=MessageType.CHAT, text="Hello", timestamp=1000)
 
     with patch("plugins.archiver.main.get_safe_chat_dir", return_value="/tmp/chat123") as mock_get_dir, \
          patch("os.makedirs") as mock_makedirs, \
@@ -122,7 +122,7 @@ async def test_on_chat_event_chat_message():
 async def test_on_chat_event_edit_message():
     chat_id = "chat123"
     archiver_main.enabled_chats.add(chat_id)
-    msg = EditMessage(source="+123", source_name="+123", destination=chat_id, type=MessageType.EDIT, text="Edited", timestamp=2000, target_sent_timestamp=1000)
+    msg = EditMessage(source=chat_id, source_name=chat_id, type=MessageType.EDIT, text="Edited", timestamp=2000, target_sent_timestamp=1000)
 
     with patch("plugins.archiver.main.get_safe_chat_dir", return_value="/tmp/chat123"), \
          patch("os.makedirs"), \
@@ -143,7 +143,7 @@ async def test_on_chat_event_edit_message():
 async def test_on_chat_event_delete_message():
     chat_id = "chat123"
     archiver_main.enabled_chats.add(chat_id)
-    msg = DeleteMessage(source="+123", source_name="+123", destination=chat_id, type=MessageType.DELETE, timestamp=3000, target_sent_timestamp=1000)
+    msg = DeleteMessage(source=chat_id, source_name=chat_id, type=MessageType.DELETE, timestamp=3000, target_sent_timestamp=1000)
 
     with patch("plugins.archiver.main.get_safe_chat_dir", return_value="/tmp/chat123"), \
          patch("os.makedirs"), \
@@ -164,7 +164,7 @@ async def test_on_chat_event_with_attachments():
     chat_id = "chat123"
     archiver_main.enabled_chats.add(chat_id)
     att = Attachment(content_type="image/png", id="att1", size=100, filename="test.png")
-    msg = ChatMessage(source="+123", source_name="+123", destination=chat_id, type=MessageType.CHAT, text="Image", timestamp=1000, attachments=[att])
+    msg = ChatMessage(source=chat_id, source_name=chat_id, type=MessageType.CHAT, text="Image", timestamp=1000, attachments=[att])
 
     with patch("plugins.archiver.main.get_safe_chat_dir", return_value="/tmp/chat123"), \
          patch("os.makedirs") as mock_makedirs, \
@@ -188,7 +188,7 @@ async def test_on_chat_event_with_attachments():
 async def test_on_chat_event_error_handling():
     chat_id = "chat123"
     archiver_main.enabled_chats.add(chat_id)
-    msg = ChatMessage(source="+123", source_name="+123", destination=chat_id, type=MessageType.CHAT, text="Hello")
+    msg = ChatMessage(source=chat_id, source_name=chat_id, type=MessageType.CHAT, text="Hello")
 
     with patch("plugins.archiver.main.get_safe_chat_dir", side_effect=Exception("Generic error")), \
          patch("plugins.archiver.main.logger") as mock_logger:
@@ -202,7 +202,7 @@ async def test_on_chat_event_rolling_file():
     """When the active file is full, it is finalized and a new one is started."""
     chat_id = "chat123"
     archiver_main.enabled_chats.add(chat_id)
-    msg = ChatMessage(source="+123", source_name="+123", destination=chat_id, type=MessageType.CHAT, text="New", timestamp=5000)
+    msg = ChatMessage(source=chat_id, source_name=chat_id, type=MessageType.CHAT, text="New", timestamp=5000)
 
     active_file = "/tmp/chat123/1000-.jsonl"
     last_line = json.dumps({"timestamp": 4999})
@@ -224,7 +224,7 @@ async def test_on_chat_event_active_file_not_full():
     """When the active file is not yet full, messages continue to be appended to it."""
     chat_id = "chat123"
     archiver_main.enabled_chats.add(chat_id)
-    msg = ChatMessage(source="+123", source_name="+123", destination=chat_id, type=MessageType.CHAT, text="Another", timestamp=2000)
+    msg = ChatMessage(source=chat_id, source_name=chat_id, type=MessageType.CHAT, text="Another", timestamp=2000)
 
     active_file = "/tmp/chat123/1000-.jsonl"
 

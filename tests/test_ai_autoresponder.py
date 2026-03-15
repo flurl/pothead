@@ -113,7 +113,7 @@ async def test_on_chat_message_received_from_self():
     ai_main.chat_with_ai = AsyncMock()
     bot_account = "bot_account"
     msg = ChatMessage(source=bot_account, source_name=bot_account, text="Hello",
-                      type=MessageType.CHAT, destination=chat_id)
+                      type=MessageType.CHAT, destination=chat_id, is_synced=True)
 
     with patch("plugins.ai_autoresponder.main.settings") as mock_settings:
         mock_settings.trigger_words = ["!pot"]
