@@ -9,6 +9,16 @@ Pothead is a bot that uses `signal-cli` to interact with the Signal messaging se
 - **Plugin System:** Extend the bot's functionality by creating plugins.
 - **Event-driven:** Responds to system events like startup, shutdown, and a periodic timer.
 
+## Deployment Modes
+
+Pothead supports two deployment modes that affect how `signal-cli` must be set up and how message fields are interpreted:
+
+- **Shared mode** (`dedicated_account = false`, default): `signal-cli` is linked as a secondary device to an existing Signal account. Messages sent from the owner's other devices arrive as `syncMessage` with `is_synced = true`; for these, `source` is the owner's own number and `destination` is the other party. Incoming messages from other people have `source` = sender, `destination` = `null`. The `chat_id` for a DM is therefore the *other party's* number in both directions.
+
+- **Dedicated mode** (`dedicated_account = true`): `signal-cli` is registered as its own Signal number. All incoming DMs have `source` = sender and `destination` = the bot's number. There are no synced messages. The `chat_id` for a DM is the sender's number.
+
+This setting currently changes the behavior of the **Gemini** plugin: in shared mode it only responds to messages that start with a trigger word; in dedicated mode it responds to any message addressed directly to the bot or where the bot is @mentioned.
+
 
 ## Dependencies
 
@@ -76,6 +86,7 @@ The bot is configured through the `pothead.toml` file or by setting environment 
 | ------------------------- | ------------------------- | ------------------------------------------------ | ------------------------------------- |
 | `POTHEAD_SIGNAL_CLI_PATH`   | `signal_cli_path`         | Path to your signal-cli executable               | `signal-cli/signal-cli` |
 | `POTHEAD_SIGNAL_ATTACHMENTS_PATH` | `signal_attachments_path` | Path to signal-cli's attachments directory | `~/.local/share/signal-cli/attachments` |
+| `POTHEAD_DEDICATED_ACCOUNT` | `dedicated_account`       | Set to `true` if the bot has its own Signal number (see [Deployment Modes](#deployment-modes)) | `false` |
 | `POTHEAD_TRIGGER_WORDS`   | `trigger_words`           | Words to trigger the bot                         | `["!pot", "!pothead", "!ph"]`           |
 | `POTHEAD_FILE_STORE_PATH`   | `file_store_path`         | Path to store documents                          | `document_store`                      |
 | `POTHEAD_HISTORY_MAX_LENGTH`| `history_max_length`      | Max length of chat history                       | `30`                                  |
@@ -112,10 +123,11 @@ Each plugin can have its own configuration. Plugins should look for a `config.to
 Pothead comes with several built-in plugins. Each plugin has its own documentation in its respective directory:
 
 - [**AI Autoresponder**](plugins/ai_autoresponder/README.md): Automatically responds to messages in specific chats using AI.
+- [**Archiver**](plugins/archiver/README.md): Archives chat messages and attachments to persistent local storage. Enable/disable per chat with `enablearchive`/`disablearchive`. Messages are stored in rolling JSONL files; attachments are saved alongside them.
 - [**Cron**](plugins/cron/README.md): Provides a scheduling service for other plugins.
 - [**Echo**](plugins/echo/README.md): A simple utility plugin that echoes messages back.
-- [**FileSender**](plugins/filesender/README.md): Schedules the sending of text file contents.
-- [**Gemini**](plugins/gemini/README.md): Integrates with Google's Gemini AI for chat, image analysis, and RAG.
+- [**FileSender**](plugins/filesender/README.md): Schedules the sending of text file contents. Also provides a file-based outbox: drop `.md` files into a chat's outbox directory and they are sent automatically (use the `outboxdir` command to get the path for the current chat).
+- [**Gemini**](plugins/gemini/README.md): Integrates with Google's Gemini AI for chat, image analysis, and RAG. Behavior depends on the [deployment mode](#deployment-modes): in shared mode it requires a trigger word; in dedicated mode it responds to any message addressed to the bot or where it is @mentioned.
 - [**Welcome**](plugins/welcome/README.md): Sends welcome messages to new group members.
 
 To enable a plugin, add its name to the `enabled_plugins` list in `pothead.toml`.
