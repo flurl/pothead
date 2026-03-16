@@ -82,3 +82,7 @@ plugins/gemini/sys_instructions.txt
 
 # ignores for filesender plugin
 plugins/filesender/outbox
+.env.dedicated
+.env.shared
+.gitignore
+utils/switch_mode.sh
