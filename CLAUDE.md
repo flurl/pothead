@@ -112,3 +112,4 @@ The **echo** plugin (`plugins/echo/`) is the canonical reference implementation 
 ## Before Committing
 
 - **Test coverage:** Before creating a commit, assess whether the changes warrant new or updated test cases. If so, write them before committing.
+- **README:** Before creating a commit, assess whether the changes warrant updates to `README.md` (e.g. new plugins, new configuration settings, changed behaviour, new deployment concepts). If so, update it before committing.
