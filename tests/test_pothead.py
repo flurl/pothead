@@ -81,6 +81,7 @@ async def test_handle_command(mock_send_signal_message):
     assert sent_message.source == "Assistant"
     assert sent_message.destination == "group123"
     assert sent_message.group_id == "group123"
+    assert sent_message.is_outgoing is True
 
 @pytest.mark.asyncio
 async def test_handle_command_invalid_type():

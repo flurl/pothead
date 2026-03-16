@@ -209,13 +209,14 @@ class ChatMessage(SignalMessage):
     attachments: list[Attachment] | None = None
     quote: MessageQuote | None = None
     mentions: list[Mention] | None = None
+    is_outgoing: bool = False
 
     @property
     def chat_id(self) -> str:
         """Returns the ID of the chat context (group ID or sender)."""
         if self.group_id:
             return self.group_id
-        if self.is_synced and self.destination:
+        if (self.is_synced or self.is_outgoing) and self.destination:
             return self.destination
         return self.source
 

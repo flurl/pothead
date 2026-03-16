@@ -466,3 +466,24 @@ def test_chat_id_delete_message_inherits():
     msg = DeleteMessage(source="+sender", source_name="Sender", type=MessageType.DELETE,
                         destination="+bot", is_synced=False, target_sent_timestamp=123)
     assert msg.chat_id == "+sender"
+
+
+def test_chat_id_is_outgoing_dm():
+    """Outgoing DM: is_outgoing=True, destination set → chat_id=destination."""
+    msg = ChatMessage(source="Assistant", source_name="Assistant", type=MessageType.CHAT,
+                      destination="+michi", is_outgoing=True)
+    assert msg.chat_id == "+michi"
+
+
+def test_chat_id_is_outgoing_group():
+    """Outgoing group message: is_outgoing=True, group_id set → chat_id=group_id."""
+    msg = ChatMessage(source="Assistant", source_name="Assistant", type=MessageType.CHAT,
+                      destination="group-abc", group_id="group-abc", is_outgoing=True)
+    assert msg.chat_id == "group-abc"
+
+
+def test_chat_id_is_outgoing_no_destination():
+    """Outgoing with no destination falls back to source."""
+    msg = ChatMessage(source="Assistant", source_name="Assistant", type=MessageType.CHAT,
+                      destination=None, is_outgoing=True)
+    assert msg.chat_id == "Assistant"

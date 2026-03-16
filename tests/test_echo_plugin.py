@@ -44,5 +44,6 @@ async def test_echo_handler(mock_send_signal_message):
 
     assert isinstance(sent_message, ChatMessage)
     assert sent_message.text == "Echo (from toml): Hello, world!"
-    assert sent_message.destination == "+1234567890"
+    assert sent_message.destination == "group123"
     assert sent_message.group_id == "group123"
+    assert sent_message.is_outgoing is True

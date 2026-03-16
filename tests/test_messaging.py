@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 from datatypes import ChatMessage, MessageType
 from messaging import (
+    create_outgoing,
+    create_reply,
     send_signal_direct_message,
     send_signal_group_message,
     send_signal_message,
@@ -105,6 +107,83 @@ def test_parse_markdown_with_emojis():
     assert text == "😀 Bold"
     # Start should be 3 (2 for emoji + 1 for space), Length 4
     assert styles == ["3:4:BOLD"]
+
+
+def test_create_reply_dm():
+    incoming = ChatMessage(source="+michi", source_name="Michi", type=MessageType.CHAT,
+                           destination="+bot", is_synced=False)
+    reply = create_reply(incoming, "Hello back")
+    assert reply.destination == "+michi"
+    assert reply.group_id is None
+    assert reply.is_outgoing is True
+    assert reply.chat_id == "+michi"
+
+
+def test_create_reply_synced_dm():
+    incoming = ChatMessage(source="+me", source_name="Me", type=MessageType.CHAT,
+                           destination="+michi", is_synced=True)
+    reply = create_reply(incoming, "Synced reply")
+    assert reply.destination == "+michi"
+    assert reply.group_id is None
+    assert reply.chat_id == "+michi"
+
+
+def test_create_reply_group():
+    incoming = ChatMessage(source="+member", source_name="Member", type=MessageType.CHAT,
+                           group_id="group-abc")
+    reply = create_reply(incoming, "Group reply")
+    assert reply.destination == "group-abc"
+    assert reply.group_id == "group-abc"
+    assert reply.chat_id == "group-abc"
+
+
+def test_create_reply_custom_source():
+    incoming = ChatMessage(source="+user", source_name="User", type=MessageType.CHAT)
+    reply = create_reply(incoming, "Echo!", source="Echo")
+    assert reply.source == "Echo"
+    assert reply.source_name == "Echo"
+
+
+def test_create_outgoing_dm():
+    msg = create_outgoing("Hello", destination="+user")
+    assert msg.destination == "+user"
+    assert msg.group_id is None
+    assert msg.is_outgoing is True
+    assert msg.chat_id == "+user"
+
+
+def test_create_outgoing_group():
+    msg = create_outgoing("Hello group", group_id="group-xyz")
+    assert msg.group_id == "group-xyz"
+    assert msg.chat_id == "group-xyz"
+
+
+@pytest.mark.asyncio
+async def test_send_signal_message_updates_history():
+    mock_proc = AsyncMock()
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdin.drain = AsyncMock()
+    set_signal_process(mock_proc)
+
+    msg = ChatMessage(source="Assistant", source_name="Assistant", destination="+user",
+                      text="Hi", type=MessageType.CHAT, is_outgoing=True)
+    with patch("messaging.update_chat_history") as mock_update:
+        await send_signal_message(msg, update_history=True)
+        mock_update.assert_called_once_with(msg)
+
+
+@pytest.mark.asyncio
+async def test_send_signal_message_skip_history():
+    mock_proc = AsyncMock()
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdin.drain = AsyncMock()
+    set_signal_process(mock_proc)
+
+    msg = ChatMessage(source="Assistant", source_name="Assistant", destination="+user",
+                      text="Hi", type=MessageType.CHAT, is_outgoing=True)
+    with patch("messaging.update_chat_history") as mock_update:
+        await send_signal_message(msg, update_history=False)
+        mock_update.assert_not_called()
 
 
 @pytest.mark.asyncio

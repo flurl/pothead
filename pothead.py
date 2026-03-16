@@ -36,7 +36,7 @@ from jsonpath_ng.jsonpath import DatumInContext
 
 from commands import COMMANDS
 from datatypes import Action, ChatMessage, MessageQuote, MessageType, Priority, Event, SignalMessage
-from messaging import set_signal_process, send_signal_message
+from messaging import set_signal_process, send_signal_message, create_reply
 from utils import check_permission, update_chat_history
 from events import fire_event
 from plugin_manager import (
@@ -121,12 +121,8 @@ async def handle_command(data: dict[str, Any]) -> bool:
                 response_attachments: list[str] = []
                 response_text, response_attachments = await execute_command(chat_id, msg.source, command, command_params, prompt)
 
-                # TODO: make use of abstraction in messaging.py?
-                response: ChatMessage = ChatMessage(
-                    source="Assistant", source_name="Assistant", destination=chat_id, text=response_text, group_id=msg.group_id, type=MessageType.CHAT)
-
-                await send_signal_message(response, attachments=response_attachments)
-                update_chat_history(response)
+                response: ChatMessage = create_reply(msg, response_text)
+                await send_signal_message(response, attachments=response_attachments, update_history=False)
                 logger.info(f"Sent response to {chat_id}")
                 return True
 
@@ -146,7 +142,6 @@ async def handle_incomming_message(data: dict[str, Any]) -> bool:
             update_chat_history(msg)
             await fire_event(Event.CHAT_MESSAGE_RECEIVED, msg)
         elif msg.type == MessageType.EDIT:
-            print(msg)
             update_chat_history(msg)
             await fire_event(Event.CHAT_MESSAGE_EDITED, msg)
         elif msg.type == MessageType.DELETE:

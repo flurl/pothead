@@ -33,10 +33,10 @@ from PIL import Image
 
 from config import settings
 from datatypes import ChatMessage, Event, MessageType
-from messaging import send_signal_direct_message, send_signal_group_message
+from messaging import send_signal_message, create_reply
 from plugin_manager import get_plugin_settings, register_command, register_event_handler, register_service
 from state import CHAT_HISTORY
-from utils import get_local_files, get_safe_chat_dir, update_chat_history
+from utils import get_local_files, get_safe_chat_dir
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -215,17 +215,8 @@ async def process_gemini_message(msg: ChatMessage, prompt: str | None = None) ->
     else:
         response_text: str = await gemini.get_response(msg.chat_id, parts)
 
-    # TODO: is this the correct place for updating the history?
-    # Shouldn't that better be handeled by the send_* functions
-    update_chat_history(ChatMessage(source="Assistant", source_name="Assistant",
-                        destination=msg.chat_id, text=response_text, type=MessageType.CHAT))
-    if msg.group_id:
-        await send_signal_group_message(response_text, msg.group_id)
-    elif msg.source == settings.signal_account:
-        await send_signal_direct_message(response_text, msg.chat_id)
-    else:
-        # For direct messages, the recipient of the reply is the original source
-        await send_signal_direct_message(response_text, msg.source)
+    reply: ChatMessage = create_reply(msg, response_text)
+    await send_signal_message(reply)
 
 
 async def chat_with_gemini(chat_id: str) -> None:
@@ -273,17 +264,8 @@ async def chat_with_gemini(chat_id: str) -> None:
     response_text: str = await gemini.get_response(chat_id, parts)
 
     last_msg: ChatMessage = history[-1]
-    # TODO: is this the correct place for updating the history?
-    # Shouldn't that better be handeled by the send_* functions
-    update_chat_history(ChatMessage(source="Assistant", source_name="Assistant",
-                        destination=chat_id, text=response_text, type=MessageType.CHAT))
-
-    if last_msg.group_id:
-        await send_signal_group_message(response_text, last_msg.group_id)
-    elif last_msg.source == settings.signal_account:
-        await send_signal_direct_message(response_text, last_msg.chat_id)
-    else:
-        await send_signal_direct_message(response_text, last_msg.source)
+    reply: ChatMessage = create_reply(last_msg, response_text)
+    await send_signal_message(reply)
 
 
 @register_service("send_to_ai")
@@ -298,14 +280,13 @@ async def chat_with_ai(msg: ChatMessage) -> bool:
     return True
 
 
-def _extract_gemini_prompt(msg: ChatMessage) -> tuple[str | None, bool]:
+def _should_process(msg: ChatMessage) -> bool:
     """
-    Checks whether the message should be processed by Gemini and returns the prompt.
+    Returns True if the message should be processed by Gemini.
 
-    In dedicated_account mode: process if the bot is the direct recipient or is @mentioned.
-    Otherwise: process if the message starts with a trigger word.
-
-    Returns (prompt, should_process).
+    In dedicated_account mode: True if the bot is the direct recipient or @mentioned,
+    and the message has content (text or attachments).
+    Otherwise: True if the message starts with a trigger word, or has attachments without text.
     """
     if settings.dedicated_account:
         is_recipient: bool = msg.destination == settings.signal_account
@@ -313,22 +294,15 @@ def _extract_gemini_prompt(msg: ChatMessage) -> tuple[str | None, bool]:
             m.number == settings.signal_account for m in msg.mentions
         )
         if not (is_recipient or is_mentioned):
-            return None, False
+            return False
         clean_msg: str = msg.text and msg.text.strip() or ""
-        if clean_msg.startswith("#"):
-            return None, False
-        return clean_msg or None, bool(clean_msg or msg.attachments)
+        return bool(clean_msg or msg.attachments)
 
     clean_msg = msg.text and msg.text.strip() or ""
     for tw in sorted(settings.trigger_words, key=len, reverse=True):
         if clean_msg.upper().startswith(tw.upper()):
-            content: str = clean_msg[len(tw):].strip()
-            if content.startswith("#"):
-                return None, False
-            return content, True
-    if not clean_msg and msg.attachments:
-        return None, True
-    return None, False
+            return True
+    return False
 
 
 @register_event_handler(plugin_id, Event.CHAT_MESSAGE_RECEIVED)
@@ -337,13 +311,10 @@ async def on_chat_message(msg: ChatMessage) -> None:
     if msg.type != MessageType.CHAT:
         return
 
-    prompt: str | None
-    should_process: bool
-    prompt, should_process = _extract_gemini_prompt(msg)
-    if not should_process:
+    if not _should_process(msg):
         return
 
-    await process_gemini_message(msg, prompt)
+    await chat_with_gemini(msg.chat_id)
 
 
 @register_command("gemini", "addctx",

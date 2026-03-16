@@ -20,6 +20,7 @@ from config import settings
 from datatypes import ChatMessage, Event, MessageType
 from plugin_manager import PENDING_REPLIES
 from events import fire_event
+from utils import update_chat_history
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -92,6 +93,37 @@ def set_signal_process(proc: Process) -> None:
     signal_process = proc
 
 
+def create_reply(incoming: ChatMessage, text: str, source: str = "Assistant") -> ChatMessage:
+    """Creates an outgoing ChatMessage in the same chat as `incoming`."""
+    return ChatMessage(
+        source=source,
+        source_name=source,
+        destination=incoming.chat_id,
+        group_id=incoming.group_id,
+        text=text,
+        type=MessageType.CHAT,
+        is_outgoing=True,
+    )
+
+
+def create_outgoing(
+    text: str,
+    destination: str | None = None,
+    group_id: str | None = None,
+    source: str = "Assistant",
+) -> ChatMessage:
+    """Creates an outgoing ChatMessage without an incoming context."""
+    return ChatMessage(
+        source=source,
+        source_name=source,
+        destination=destination,
+        group_id=group_id,
+        text=text,
+        type=MessageType.CHAT,
+        is_outgoing=True,
+    )
+
+
 async def send_signal_direct_message(
     message: str,
     recipient: str,
@@ -99,9 +131,8 @@ async def send_signal_direct_message(
     wants_answer_callback: Callable[[
         dict[str, Any]], Awaitable[None]] | None = None
 ) -> None:
-    msg: ChatMessage = ChatMessage(
-        source="Assistant", source_name="Assistant", destination=recipient, text=message, type=MessageType.CHAT)
-    await send_signal_message(msg, attachments=attachments, wants_answer_callback=wants_answer_callback)
+    msg: ChatMessage = create_outgoing(message, destination=recipient)
+    await send_signal_message(msg, attachments=attachments, wants_answer_callback=wants_answer_callback, update_history=False)
 
 
 async def send_signal_group_message(
@@ -111,16 +142,16 @@ async def send_signal_group_message(
     wants_answer_callback: Callable[[
         dict[str, Any]], Awaitable[None]] | None = None
 ) -> None:
-    msg: ChatMessage = ChatMessage(
-        source="Assistant", source_name="Assistant", group_id=group_id, text=message, type=MessageType.CHAT)
-    await send_signal_message(msg, attachments=attachments, wants_answer_callback=wants_answer_callback)
+    msg: ChatMessage = create_outgoing(message, group_id=group_id)
+    await send_signal_message(msg, attachments=attachments, wants_answer_callback=wants_answer_callback, update_history=False)
 
 
 async def send_signal_message(
     msg: ChatMessage,
     attachments: list[str] | None = None,
     wants_answer_callback: Callable[[
-        dict[str, Any]], Awaitable[None]] | None = None
+        dict[str, Any]], Awaitable[None]] | None = None,
+    update_history: bool = True,
 ) -> None:
     """
     Sends a message back via signal-cli JSON-RPC.
@@ -179,6 +210,8 @@ async def send_signal_message(
         assert proc.stdin is not None
         proc.stdin.write(json.dumps(rpc_request).encode('utf-8') + b"\n")
         await proc.stdin.drain()
+        if update_history:
+            update_chat_history(msg)
         await fire_event(Event.CHAT_MESSAGE_SENT, msg)
     except Exception as e:
         logger.error(f"Failed to send message: {e}")
