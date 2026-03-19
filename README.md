@@ -59,17 +59,22 @@ cd signal-cli
 
 Since https://github.com/AsamK/signal-cli/commit/32c8d4f80102623c29c81e29ae4e3cd921f48ddb `signal-cli` needs Java 25 to compile. But `signallib` does not (yet) compile with Java 25. Therefore you have to use two different Java Versions to successfully install `signal-cli` if you can't use the binary distribution of `libsignal`.
 
-I for example downloaded OpenJDK 25 from https://jdk.java.net/25/ . And then I make it default by setting the environment variable `JAVA_HOME`:
+You can for example download OpenJDK 25 from https://jdk.java.net/25/ and use it as the `--signalcli-java-home`.
 
-```bash
-export JAVA_HOME=/path/to/openJDK/jdk-25.0.2/
-```
+After a successful build you will find the `signal-cli` script under `signal-cli/build/install/signal-cli/bin/signal-cli`.
 
-But then you also have to set `JAVA_HOME` to run `pothead` .
-
-After that you should find the `signal-cli` script under `signal-cli/build/install/signal-cli/bin/signal-cli`.
-
-Two helper scripts `install_or_update_signal-cli.sh` and `check_release.sh` are provided that should do the hard work for you. Just set `JAVA_HOME` and run `install_or_update_signal-cli.sh`. This script expects your default JDK to be suitable for compiling `libsignal` and the via `JAVA_HOME` set JDK to be suitable for compiling `signal-cli`.
+Two helper scripts `install_or_update_signal-cli.sh` and `check_release.sh` are provided that should do the hard work for you. Run `install_or_update_signal-cli.sh` with the appropriate Java home flags:
+ 
+ ```bash
+./install_or_update_signal-cli.sh \
+    --libsignal-java-home /path/to/jdk-compatible-with-gradle8 \
+    --signalcli-java-home /path/to/openJDK/jdk-25.0.2
+ ```
+ 
+- `--libsignal-java-home`: Path to a JDK for building `libsignal`. `libsignal` uses Gradle 8.x which does **not** work with Java 25, so you need an older JDK here.
+- `--signalcli-java-home`: Path to a JDK for building `signal-cli`. `signal-cli` uses Gradle 9.x which requires Java 25+.
+ 
+Both flags are optional. If omitted, the script uses the current environment's `JAVA_HOME` (or the system default JDK).
 
 Finally you must link `signal-cli` to your signal account - see https://github.com/AsamK/signal-cli/wiki/Linking-other-devices-(Provisioning). 
 
