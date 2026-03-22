@@ -46,3 +46,4 @@ class PluginSettings(PluginSettingsBase):
     filesender: list[FileSender] = []
     outbox_dir: str = "outbox"
     outbox_interval: int = 1
+    outbox_message_delay: int = 5

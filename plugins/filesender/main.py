@@ -7,6 +7,7 @@ and a schedule (interval or specific time of day).
 The plugin uses the `cron` service to schedule these tasks.
 """
 
+import asyncio
 import glob
 import logging
 import os
@@ -101,6 +102,7 @@ async def scan_outbox() -> None:
                 await send_signal_message(outgoing_message)
                 os.remove(file_path)
                 logger.info(f"Sent and deleted outbox file {file_path}")
+                await asyncio.sleep(plugin_settings.outbox_message_delay)
             except Exception as e:
                 logger.error(f"Failed to send outbox file {file_path}: {e}")
 
