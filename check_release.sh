@@ -6,7 +6,7 @@ if [ $# -ne 1 ]; then
     exit 1
 fi
 REPO="$1"
-LOCAL_VERSION_FILE=".current_version"
+LOCAL_VERSION_FILE="$(pwd)/.current_version"
 TARGET_DIR="./libsignal_latest_release"
  
 # --- EXIT CODE DEFINITIONS ---
