@@ -9,6 +9,8 @@ set -euo pipefail
 # --- ARGUMENT PARSING ---
 LIBSIGNAL_JAVA_HOME=""
 SIGNALCLI_JAVA_HOME=""
+FORCE=false
+LIBSIGNAL_TAG=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -20,9 +22,25 @@ while [[ $# -gt 0 ]]; do
             SIGNALCLI_JAVA_HOME="$2"
             shift 2
             ;;
+        --force)
+            FORCE=true
+            shift
+            ;;
+        --libsignal-tag)
+            LIBSIGNAL_TAG="$2"
+            shift 2
+            ;;
+        --libsignal-tag-file)
+            if [ ! -f "$2" ]; then
+                echo "❌ Error: --libsignal-tag-file '$2' not found."
+                exit 1
+            fi
+            LIBSIGNAL_TAG=$(cat "$2" | tr -d '[:space:]')
+            shift 2
+            ;;
         *)
             echo "Unknown argument: $1"
-            echo "Usage: $0 [--libsignal-java-home <path>] [--signalcli-java-home <path>]"
+            echo "Usage: $0 [--libsignal-java-home <path>] [--signalcli-java-home <path>] [--force] [--libsignal-tag <tag>] [--libsignal-tag-file <file>]"
             exit 1
             ;;
     esac
@@ -74,24 +92,33 @@ fi
 source "$HOME/.cargo/env"
 
 # ------------------------------------------------------------------------------
-# Step 3: Check for new libsignal release
+# Step 3: Check for new libsignal release (skipped with --force)
 # ------------------------------------------------------------------------------
-echo -e "\n==> Checking for new libsignal releases..."
-# TEMPORARILY DISABLE 'set -e' so a non‑zero exit DOESN'T kill the script
-set +e
-./check_release.sh signalapp/libsignal
-CHECK_EXIT=$?
-set -e   # re‑enable immediately
+if [ "$FORCE" = true ]; then
+    echo -e "\n==> --force specified, skipping version check and proceeding with build..."
+else
+    if [ -n "$LIBSIGNAL_TAG" ]; then
+        echo -e "\n==> Checking for pinned libsignal release: $LIBSIGNAL_TAG..."
+    else
+        echo -e "\n==> Checking for new libsignal releases..."
+    fi
 
-# Handle check result
-if [ $CHECK_EXIT -eq 0 ]; then
-    echo -e "\n✅ No new libsignal release available. Exiting without build."
-    exit 2
-elif [ $CHECK_EXIT -eq 2 ]; then
-    echo -e "\n🚀 New libsignal release detected! Proceeding with build..."
-elif [ $CHECK_EXIT -ne 0 ] && [ $CHECK_EXIT -ne 2 ]; then
-    echo -e "\n❌ Error checking for libsignal updates (exit code $CHECK_EXIT)."
-    exit 1
+    # TEMPORARILY DISABLE 'set -e' so a non-zero exit DOESN'T kill the script
+    set +e
+    ./check_release.sh signalapp/libsignal ${LIBSIGNAL_TAG:+"$LIBSIGNAL_TAG"}
+    CHECK_EXIT=$?
+    set -e   # re-enable immediately
+
+    # Handle check result
+    if [ $CHECK_EXIT -eq 0 ]; then
+        echo -e "\n✅ No new libsignal release available. Exiting without build."
+        exit 2
+    elif [ $CHECK_EXIT -eq 2 ]; then
+        echo -e "\n🚀 New libsignal release detected! Proceeding with build..."
+    else
+        echo -e "\n❌ Error checking for libsignal updates (exit code $CHECK_EXIT)."
+        exit 1
+    fi
 fi
 
 # ------------------------------------------------------------------------------
@@ -120,10 +147,24 @@ else
     export JAVA_HOME="$OLD_JAVA_HOME"
 fi
 
-# Dynamically find the built libsignal jar (NO MORE HARDCODED VERSION NUMBERS!)
-LIBSIGNAL_JAR=$(find "$LIBSIGNAL_DIR/java/client/build/libs" -name "libsignal-client-*.jar" -type f |grep -v "sources.jar" | head -n 1)
+# Determine the exact jar for the checked-out version.
+# Prefer the explicitly requested tag; fall back to .current_version written by check_release.sh.
+if [ -n "$LIBSIGNAL_TAG" ]; then
+    BUILT_VERSION="$LIBSIGNAL_TAG"
+elif [ -f "$BASE_DIR/.current_version" ]; then
+    BUILT_VERSION=$(cat "$BASE_DIR/.current_version" | tr -d '[:space:]')
+else
+    echo "❌ Error: Cannot determine built libsignal version: no --libsignal-tag given and .current_version not found."
+    exit 1
+fi
+# The tag is e.g. "v0.90.0"; the jar is named "libsignal-client-0.90.0.jar" (no leading 'v')
+BUILT_VERSION_STRIPPED="${BUILT_VERSION#v}"
+LIBSIGNAL_JAR="$LIBSIGNAL_DIR/java/client/build/libs/libsignal-client-${BUILT_VERSION_STRIPPED}.jar"
 if [ ! -f "$LIBSIGNAL_JAR" ]; then
-    echo "❌ Error: Could not find built libsignal jar file"
+    echo "❌ Error: Expected jar not found: $LIBSIGNAL_JAR"
+    echo "   Built version from .current_version: $BUILT_VERSION"
+    echo "   Available jars:"
+    find "$LIBSIGNAL_DIR/java/client/build/libs" -name "libsignal-client-*.jar" -not -name "*-sources.jar" | sort | sed 's/^/     /'
     exit 1
 fi
 echo "Found libsignal build: $LIBSIGNAL_JAR"
@@ -146,5 +187,3 @@ cd "$BASE_DIR"
 echo -e "\n🎉 ALL BUILDS COMPLETED SUCCESSFULLY!"
 echo "Installed signal-cli location: $BASE_DIR/signal-cli/build/install/signal-cli/bin/signal-cli"
 exit 0
-
-
