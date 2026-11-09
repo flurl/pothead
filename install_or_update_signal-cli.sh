@@ -181,4 +181,46 @@ echo -e "\n==> Building signal-cli against libsignal $LIBSIGNAL_TAG..."
 cd "$BASE_DIR"
 echo -e "\n🎉 ALL BUILDS COMPLETED SUCCESSFULLY!"
 echo "Installed signal-cli location: $SIGNALCLI_DIR/build/install/signal-cli/bin/signal-cli"
+
+# ------------------------------------------------------------------------------
+# Step 8: Post-build cleanup to reclaim disk space
+# ------------------------------------------------------------------------------
+echo -e "\n==> Cleaning up build artifacts..."
+
+# Rust build artifacts for libsignal (largest, not needed after jar is produced)
+if [ -d "$LIBSIGNAL_DIR/target" ]; then
+    echo "  Removing libsignal Rust target dir..."
+    rm -rf "$LIBSIGNAL_DIR/target"
+fi
+
+# signal-cli Gradle intermediates — keep only the installed distribution
+if [ -d "$SIGNALCLI_DIR/build" ]; then
+    echo "  Removing signal-cli build intermediates (keeping build/install/)..."
+    find "$SIGNALCLI_DIR/build" -mindepth 1 -maxdepth 1 ! -name "install" -exec rm -rf {} +
+fi
+
+# Remove Gradle wrapper distributions older than the two most recently used
+if [ -d "$HOME/.gradle/wrapper/dists" ]; then
+    echo "  Pruning old Gradle wrapper distributions..."
+    # Keep the 2 most recently modified, delete the rest
+    ls -dt "$HOME/.gradle/wrapper/dists"/gradle-* 2>/dev/null | tail -n +3 | xargs -r rm -rf
+fi
+
+# Remove Gradle version caches older than the two most recently used
+if [ -d "$HOME/.gradle/caches" ]; then
+    echo "  Pruning old Gradle version caches..."
+    # Only target numeric version dirs (e.g. 8.13, 9.4.0), keep 2 most recent
+    find "$HOME/.gradle/caches" -mindepth 1 -maxdepth 1 -type d \
+        | grep -E '/[0-9]+\.[0-9]' \
+        | xargs -r ls -dt 2>/dev/null \
+        | tail -n +3 | xargs -r rm -rf
+fi
+
+# Old Rust nightly toolchains (keep stable + most recent nightly if any)
+if command -v rustup &> /dev/null; then
+    echo "  Pruning old Rust nightly toolchains..."
+    rustup toolchain list | grep nightly | sort | head -n -1 | awk '{print $1}' | xargs -r rustup toolchain uninstall
+fi
+
+echo "  Cleanup done."
 exit 0
