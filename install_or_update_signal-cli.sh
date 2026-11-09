@@ -85,11 +85,28 @@ cleanup() {
             | tail -n +3 | xargs -r rm -rf || true
     fi
 
-    # Old Rust nightly toolchains (keep stable + most recent nightly if any)
-    if command -v rustup &> /dev/null; then
-        echo "  Pruning old Rust nightly toolchains..."
-        rustup toolchain list | grep nightly | sort | head -n -1 | awk '{print $1}' \
-            | xargs -r rustup toolchain uninstall || true
+    # Rust toolchains: keep stable (default) + the one pinned by libsignal's
+    # rust-toolchain file. Works on the directory directly so a broken rustup
+    # binary can't silently turn this into a no-op.
+    RUSTUP_TOOLCHAINS="${RUSTUP_HOME:-$HOME/.rustup}/toolchains"
+    if [ -d "$RUSTUP_TOOLCHAINS" ]; then
+        echo "  Pruning unused Rust toolchains..."
+        KEEP_TC=""
+        if [ -f "$LIBSIGNAL_DIR/rust-toolchain" ]; then
+            KEEP_TC=$(tr -d '[:space:]' < "$LIBSIGNAL_DIR/rust-toolchain")
+        fi
+        for tc in "$RUSTUP_TOOLCHAINS"/*; do
+            [ -d "$tc" ] || continue
+            name=$(basename "$tc")
+            case "$name" in
+                stable-*) continue ;;
+            esac
+            if [ -n "$KEEP_TC" ] && [[ "$name" == "$KEEP_TC"-* ]]; then
+                continue
+            fi
+            echo "    Removing toolchain $name"
+            rm -rf "$tc" || true
+        done
     fi
 
     echo "  Cleanup done."
@@ -139,8 +156,14 @@ fi
 # Step 2: Check and install Rust / Rustup ONLY if missing
 # ------------------------------------------------------------------------------
 echo -e "\n==> Checking for Rust installation..."
-if ! command -v rustup &> /dev/null; then
-    echo "Rustup not found, installing unattended..."
+# Make an existing install visible even in non-login shells
+if [ -f "$HOME/.cargo/env" ]; then
+    source "$HOME/.cargo/env"
+fi
+# Actually execute rustup: a present-but-corrupt binary (e.g. truncated by an
+# interrupted self-update) passes 'command -v' but crashes cargo/rustc later.
+if ! rustup --version &> /dev/null; then
+    echo "Rustup not found or not working, installing unattended..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 else
     echo "Rustup is already installed."

@@ -84,10 +84,14 @@ Two further switches control what the script does:
 After a successful build the script cleans up to reclaim disk space, which is useful on
 small machines like a Raspberry Pi. It removes `libsignal`'s Rust `target/` directory and
 the `signal-cli` Gradle build intermediates (keeping `build/install/`), and it prunes
-Gradle wrapper distributions and version caches in `~/.gradle` as well as old Rust nightly
-toolchains, keeping only the most recent ones. Note that the last two reach outside the
+Gradle wrapper distributions and version caches in `~/.gradle` (keeping the two most recent)
+as well as Rust toolchains in `~/.rustup/toolchains`, keeping only `stable` and the toolchain
+pinned by libsignal's `rust-toolchain` file. Note that the last two reach outside the
 repository into your home directory, so other projects on the same machine may have to
-re-download their Gradle distribution on the next build. Run `./install_or_update_signal-cli.sh
+re-download their Gradle distribution or Rust toolchain on the next build.
+
+The script also verifies that `rustup` actually runs (not just that it exists) and reinstalls
+it if the binary is broken, e.g. after an interrupted self-update. Run `./install_or_update_signal-cli.sh
 --cleanup-only` to perform just this cleanup without building anything.
 
 Finally you must link `signal-cli` to your signal account - see https://github.com/AsamK/signal-cli/wiki/Linking-other-devices-(Provisioning). 
