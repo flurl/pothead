@@ -76,13 +76,19 @@ Two helper scripts `install_or_update_signal-cli.sh` and `check_release.sh` are 
  
 Both flags are optional. If omitted, the script uses the current environment's `JAVA_HOME` (or the system default JDK).
 
+Two further switches control what the script does:
+
+- `--force`: Skip the release check and build even if no new `signal-cli` release is available.
+- `--cleanup-only`: Run only the cleanup described below, skipping the dependency checks and both builds. Cannot be combined with `--force`.
+
 After a successful build the script cleans up to reclaim disk space, which is useful on
 small machines like a Raspberry Pi. It removes `libsignal`'s Rust `target/` directory and
 the `signal-cli` Gradle build intermediates (keeping `build/install/`), and it prunes
 Gradle wrapper distributions and version caches in `~/.gradle` as well as old Rust nightly
 toolchains, keeping only the most recent ones. Note that the last two reach outside the
 repository into your home directory, so other projects on the same machine may have to
-re-download their Gradle distribution on the next build.
+re-download their Gradle distribution on the next build. Run `./install_or_update_signal-cli.sh
+--cleanup-only` to perform just this cleanup without building anything.
 
 Finally you must link `signal-cli` to your signal account - see https://github.com/AsamK/signal-cli/wiki/Linking-other-devices-(Provisioning). 
 

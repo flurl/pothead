@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # --- EXIT CODES ---
-# 0 = New release found, build completed successfully
+# 0 = New release found, build completed successfully (or cleanup-only run finished)
 # 2 = No new release, no action taken
 # 1 = Error occurred
 
@@ -10,6 +10,7 @@ set -euo pipefail
 LIBSIGNAL_JAVA_HOME=""
 SIGNALCLI_JAVA_HOME=""
 FORCE=false
+CLEANUP_ONLY=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -25,9 +26,13 @@ while [[ $# -gt 0 ]]; do
             FORCE=true
             shift
             ;;
+        --cleanup-only)
+            CLEANUP_ONLY=true
+            shift
+            ;;
         *)
             echo "Unknown argument: $1"
-            echo "Usage: $0 [--libsignal-java-home <path>] [--signalcli-java-home <path>] [--force]"
+            echo "Usage: $0 [--libsignal-java-home <path>] [--signalcli-java-home <path>] [--force] [--cleanup-only]"
             exit 1
             ;;
     esac
@@ -38,6 +43,70 @@ BASE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "$BASE_DIR"
 LIBSIGNAL_DIR="$BASE_DIR/libsignal_latest_release"
 SIGNALCLI_DIR="$BASE_DIR/signal-cli"
+
+if [ "$FORCE" = true ] && [ "$CLEANUP_ONLY" = true ]; then
+    echo "❌ Error: --force and --cleanup-only cannot be combined."
+    exit 1
+fi
+
+# ------------------------------------------------------------------------------
+# Cleanup: reclaim disk space after a build (also runnable on its own via
+# --cleanup-only). Every step is optional and must not fail the script.
+# ------------------------------------------------------------------------------
+cleanup() {
+    echo -e "\n==> Cleaning up build artifacts..."
+
+    # Rust build artifacts for libsignal (largest, not needed after jar is produced)
+    if [ -d "$LIBSIGNAL_DIR/target" ]; then
+        echo "  Removing libsignal Rust target dir..."
+        rm -rf "$LIBSIGNAL_DIR/target"
+    fi
+
+    # signal-cli Gradle intermediates — keep only the installed distribution
+    if [ -d "$SIGNALCLI_DIR/build" ]; then
+        echo "  Removing signal-cli build intermediates (keeping build/install/)..."
+        find "$SIGNALCLI_DIR/build" -mindepth 1 -maxdepth 1 ! -name "install" -exec rm -rf {} +
+    fi
+
+    # Remove Gradle wrapper distributions older than the two most recently used
+    if [ -d "$HOME/.gradle/wrapper/dists" ]; then
+        echo "  Pruning old Gradle wrapper distributions..."
+        # Keep the 2 most recently modified, delete the rest
+        ls -dt "$HOME/.gradle/wrapper/dists"/gradle-* 2>/dev/null | tail -n +3 | xargs -r rm -rf || true
+    fi
+
+    # Remove Gradle version caches older than the two most recently used
+    if [ -d "$HOME/.gradle/caches" ]; then
+        echo "  Pruning old Gradle version caches..."
+        # Only target numeric version dirs (e.g. 8.13, 9.4.0), keep 2 most recent
+        find "$HOME/.gradle/caches" -mindepth 1 -maxdepth 1 -type d \
+            | grep -E '/[0-9]+\.[0-9]' \
+            | xargs -r ls -dt 2>/dev/null \
+            | tail -n +3 | xargs -r rm -rf || true
+    fi
+
+    # Old Rust nightly toolchains (keep stable + most recent nightly if any)
+    if command -v rustup &> /dev/null; then
+        echo "  Pruning old Rust nightly toolchains..."
+        rustup toolchain list | grep nightly | sort | head -n -1 | awk '{print $1}' \
+            | xargs -r rustup toolchain uninstall || true
+    fi
+
+    echo "  Cleanup done."
+}
+
+# ------------------------------------------------------------------------------
+# Cleanup-only mode: skip every build step
+# ------------------------------------------------------------------------------
+if [ "$CLEANUP_ONLY" = true ]; then
+    echo "==> --cleanup-only specified, skipping dependency checks and builds."
+    # rustup lives in ~/.cargo/bin, which a non-login shell may not have on PATH
+    if [ -f "$HOME/.cargo/env" ]; then
+        source "$HOME/.cargo/env"
+    fi
+    cleanup
+    exit 0
+fi
 
 # ------------------------------------------------------------------------------
 # Step 1: Check and install apt dependencies ONLY if missing
@@ -185,42 +254,5 @@ echo "Installed signal-cli location: $SIGNALCLI_DIR/build/install/signal-cli/bin
 # ------------------------------------------------------------------------------
 # Step 8: Post-build cleanup to reclaim disk space
 # ------------------------------------------------------------------------------
-echo -e "\n==> Cleaning up build artifacts..."
-
-# Rust build artifacts for libsignal (largest, not needed after jar is produced)
-if [ -d "$LIBSIGNAL_DIR/target" ]; then
-    echo "  Removing libsignal Rust target dir..."
-    rm -rf "$LIBSIGNAL_DIR/target"
-fi
-
-# signal-cli Gradle intermediates — keep only the installed distribution
-if [ -d "$SIGNALCLI_DIR/build" ]; then
-    echo "  Removing signal-cli build intermediates (keeping build/install/)..."
-    find "$SIGNALCLI_DIR/build" -mindepth 1 -maxdepth 1 ! -name "install" -exec rm -rf {} +
-fi
-
-# Remove Gradle wrapper distributions older than the two most recently used
-if [ -d "$HOME/.gradle/wrapper/dists" ]; then
-    echo "  Pruning old Gradle wrapper distributions..."
-    # Keep the 2 most recently modified, delete the rest
-    ls -dt "$HOME/.gradle/wrapper/dists"/gradle-* 2>/dev/null | tail -n +3 | xargs -r rm -rf
-fi
-
-# Remove Gradle version caches older than the two most recently used
-if [ -d "$HOME/.gradle/caches" ]; then
-    echo "  Pruning old Gradle version caches..."
-    # Only target numeric version dirs (e.g. 8.13, 9.4.0), keep 2 most recent
-    find "$HOME/.gradle/caches" -mindepth 1 -maxdepth 1 -type d \
-        | grep -E '/[0-9]+\.[0-9]' \
-        | xargs -r ls -dt 2>/dev/null \
-        | tail -n +3 | xargs -r rm -rf
-fi
-
-# Old Rust nightly toolchains (keep stable + most recent nightly if any)
-if command -v rustup &> /dev/null; then
-    echo "  Pruning old Rust nightly toolchains..."
-    rustup toolchain list | grep nightly | sort | head -n -1 | awk '{print $1}' | xargs -r rustup toolchain uninstall
-fi
-
-echo "  Cleanup done."
+cleanup
 exit 0
